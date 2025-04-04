@@ -95,6 +95,16 @@ __PACKAGE__->table("bold");
   data_type: 'text'
   is_nullable: 1
 
+=head2 taxon_name
+
+  data_type: 'text'
+  is_nullable: 1
+
+=head2 taxon_rank
+
+  data_type: 'text'
+  is_nullable: 1
+
 =head2 kingdom
 
   data_type: 'text'
@@ -235,12 +245,12 @@ __PACKAGE__->table("bold");
   data_type: 'text'
   is_nullable: 1
 
-=head2 collection_date
+=head2 collection_date_start
 
   data_type: 'text'
   is_nullable: 1
 
-=head2 collection_date_accuracy
+=head2 collection_date_end
 
   data_type: 'text'
   is_nullable: 1
@@ -276,8 +286,9 @@ __PACKAGE__->table("bold");
   data_type: 'text'
   is_nullable: 1
 
-=head2 province
+=head2 province/state
 
+  accessor: 'province_state'
   data_type: 'text'
   is_nullable: 1
 
@@ -391,7 +402,7 @@ __PACKAGE__->table("bold");
   data_type: 'text'
   is_nullable: 1
 
-=head2 recordset_code_arr
+=head2 bold_recordset_code_arr
 
   data_type: 'text'
   is_nullable: 1
@@ -426,6 +437,10 @@ __PACKAGE__->add_columns(
   "inst",
   { data_type => "text", is_nullable => 1 },
   "taxid",
+  { data_type => "text", is_nullable => 1 },
+  "taxon_name",
+  { data_type => "text", is_nullable => 1 },
+  "taxon_rank",
   { data_type => "text", is_nullable => 1 },
   "kingdom",
   { data_type => "text", is_nullable => 1 },
@@ -483,9 +498,9 @@ __PACKAGE__->add_columns(
   { data_type => "text", is_nullable => 1 },
   "collectors",
   { data_type => "text", is_nullable => 1 },
-  "collection_date",
+  "collection_date_start",
   { data_type => "text", is_nullable => 1 },
-  "collection_date_accuracy",
+  "collection_date_end",
   { data_type => "text", is_nullable => 1 },
   "collection_event_id",
   { data_type => "text", is_nullable => 1 },
@@ -499,8 +514,8 @@ __PACKAGE__->add_columns(
   { accessor => "country_ocean", data_type => "text", is_nullable => 1 },
   "country_iso",
   { data_type => "text", is_nullable => 1 },
-  "province",
-  { data_type => "text", is_nullable => 1 },
+  "province/state",
+  { accessor => "province_state", data_type => "text", is_nullable => 1 },
   "region",
   { data_type => "text", is_nullable => 1 },
   "sector",
@@ -545,7 +560,7 @@ __PACKAGE__->add_columns(
   { data_type => "text", is_nullable => 1 },
   "sequence_upload_date",
   { data_type => "text", is_nullable => 1 },
-  "recordset_code_arr",
+  "bold_recordset_code_arr",
   { data_type => "text", is_nullable => 1 },
 );
 
@@ -599,8 +614,8 @@ __PACKAGE__->belongs_to(
 );
 
 
-# Created by DBIx::Class::Schema::Loader v0.07049 @ 2024-04-10 23:44:57
-# DO NOT MODIFY THIS OR ANYTHING ABOVE! md5sum:Zt1GLcUsA784ZVDTJnA9wA
+# Created by DBIx::Class::Schema::Loader v0.07049 @ 2024-07-12 17:27:42
+# DO NOT MODIFY THIS OR ANYTHING ABOVE! md5sum:EIuy1NZgdbvVBTQvqISLdA
 
 
 # You can replace this text with custom code or comments, and it will be preserved on regeneration

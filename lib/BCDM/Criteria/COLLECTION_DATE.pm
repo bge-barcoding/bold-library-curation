@@ -13,7 +13,11 @@ sub _criterion { $BCDM::Criteria::COLLECTION_DATE }
 sub _assess {
     my $package = shift;
     my $record = shift;
-    return $record->collection_date eq '' ? 0 : 1, "Determined from collection_date column";
+    my $has_date = 0;
+    if ( $record->collection_date_start or $record->collection_date_end ) {
+        $has_date = 1;
+    }
+    return $has_date, "Determined from collection_date column";
 }
 
 1;
