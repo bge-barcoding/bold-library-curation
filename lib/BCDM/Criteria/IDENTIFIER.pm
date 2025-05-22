@@ -7,7 +7,9 @@ use base 'BCDM::Criteria';
 my %cbg = (
     'Kate Perez'     => 1,
     'Angela Telfer'  => 1,
-    'BOLD ID Engine' => 1,
+    'BOLD' => 1,
+    'BLAST' => 1,
+    'BIN' => 1,
 );
 
 # this so that we know the criterionid for
