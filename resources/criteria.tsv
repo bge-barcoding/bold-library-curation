@@ -8,9 +8,9 @@
 8	COLLECTORS	Specimen was collected by a named person
 9	COLLECTION_DATE	Specimen has a known collection data
 10	COUNTRY	Specimen has a known collection country
-11 REGION Specimen has a known collection region
-11 SECTOR Specimen has a known collection sector
-11	SITE	Specimen has a known collection site
-12	COORD	Specimen has known collection coordinates
-13	INSTITUTION	Specimen is held in a public institution
-14	MUSEUM_ID	Specimen is held in a named museum
+11  REGION  Specimen has a known collection region
+12  SECTOR  Specimen has a known collection sector
+13	SITE	Specimen has a known collection site
+14	COORD	Specimen has known collection coordinates
+15	INSTITUTION	Specimen is held in a public institution
+16	MUSEUM_ID	Specimen is held in a named museum
