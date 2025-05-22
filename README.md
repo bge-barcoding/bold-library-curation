@@ -29,11 +29,11 @@ to the current state of the art.
 ## Install
 Clone the repo:
 ```{shell}
-git clone https://github.com/FabianDeister/Library_curation_BOLD.git
+git clone https://github.com/bge-barcoding/bold-library-curation.git
 ```
 Change directory: 
 ```{shell}
-cd Library_curation_BOLD
+cd bold-library-curation
 ```
 The code in this repo depends on various tools. These are managed using
 the `mamba` program (a drop-in replacement of `conda`). The following
@@ -57,7 +57,7 @@ Follow the installation instructions above.
 
 Update config/config.yml to define your input data.
 
-in *Library_curation_BOLD* type:
+in *bold-library-curation* type:
 ```{shell}
 snakemake -p -c {number of cores}
 ```
