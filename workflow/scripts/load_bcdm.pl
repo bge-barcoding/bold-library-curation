@@ -44,7 +44,16 @@ my $dbh = DBI->connect("dbi:SQLite:dbname=$db_file","","");
 
 # Connect to the BOLD TSV as binary, with UTF-8
 $log->info("Going to read BOLD TSV dump $bold_tsv");
-my $tsv = Text::CSV->new({ sep_char => "\t", binary => 1, auto_diag => 1, allow_whitespace => 1, quote_char => undef });
+my $tsv = Text::CSV->new({ 
+    sep_char => "\t", 
+    binary => 1, 
+    auto_diag => 1, 
+    allow_whitespace => 1, 
+    quote_char => '"',
+    escape_char => '"',
+    allow_loose_quotes => 1,
+    allow_loose_escapes => 1
+});
 open my $fh, "<:encoding(utf8)", $bold_tsv or die "Could not open file '$bold_tsv': $!";
 
 # Prepare the SQL statement
