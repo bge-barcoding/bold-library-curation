@@ -3,14 +3,15 @@ use strict;
 use warnings;
 use base 'BCDM::Criteria';
 
-# values we assessed are not taxonomic experts (case-insensitive partial matches)
+# values we assessed are not taxonomic experts
+# Using word boundaries (\b) to avoid matching parts of legitimate names
 my @cbg_patterns = (
-    'Kate Perez',
-    'Angela Telfer',
-    'BOLD',
-    'BLAST',
-    'BIN',
-    'None',
+    qr/\bKate\s+Perez\b/i,      # Exact name match - CBG employee
+    qr/\bAngela\s+Telfer\b/i,   # Exact name match - CBG employee  
+    qr/\bBOLD\b/i,              # Word boundary - won't match names containing "bold" like "Theobold"
+    qr/\bBLAST\b/i,             # Word boundary - won't match names containing "blast" like "Blaster" ... names these days!
+    qr/\bBIN\b/i,               # Word boundary - won't match names containing "bin" like "Sabine"
+    qr/\bNone\b/i,              # Word boundary - won't match names containing "none" like "Nonel"
 );
 
 # this so that we know the criterionid for
@@ -32,10 +33,10 @@ sub _assess {
         return 0, "no identifier named";
     }
 
-    # check if identifier contains any of the non-expert patterns (case-insensitive)
+    # check if identifier matches any of the non-expert patterns
     for my $pattern (@cbg_patterns) {
-        if ( $identifier =~ /\Q$pattern\E/i ) {
-            return 0, "identified_by: '$identifier' (contains '$pattern')";
+        if ( $identifier =~ /$pattern/ ) {
+            return 0, "identified_by: '$identifier' (matches exclusion pattern)";
         }
     }
 
