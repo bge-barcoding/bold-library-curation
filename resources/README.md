@@ -1,5 +1,5 @@
 # Data
 
-BOLD snapshot [releases](https://v4.boldsystems.org/index.php/datapackages)
+BOLD public datapackages downloaded from here: [releases](https://bench.boldsystems.org/index.php/datapackages/Latest)
 
-The European animal species list with synonyms is managed here [gaplist-data](https://github.com/bge-barcoding/gaplist-data). The first column contains the names as they appear in the list the other names separated by semicolons are synonyms of the first name given.
+The European animal species list with synonyms is managed here: [gaplist-data](https://github.com/bge-barcoding/gaplist-data). The first column contains the names as they appear in the list the other names separated by semicolons are synonyms of the first name given.
