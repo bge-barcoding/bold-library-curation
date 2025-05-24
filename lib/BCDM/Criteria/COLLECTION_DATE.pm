@@ -14,7 +14,12 @@ sub _assess {
     my $package = shift;
     my $record = shift;
     my $has_date = 0;
-    if ( $record->collection_date_start or $record->collection_date_end ) {
+    
+    my $start_date = $record->collection_date_start;
+    my $end_date = $record->collection_date_end;
+    
+    # Check if we have valid dates (not undef, empty, or "None")
+    if ( ($start_date && $start_date ne "None") or ($end_date && $end_date ne "None") ) {
         $has_date = 1;
     }
     return $has_date, "Determined from collection_date column";
