@@ -39,6 +39,8 @@ my @pos = qw(
 my @neg = qw(
     barco
     BOLD
+    mBRAVE
+    SINTAX
     CO1
     COI
     COX
@@ -47,13 +49,16 @@ my @neg = qw(
     phylo
     sequ
     tree
+    image
     bin
     silva
     ncbi
+    ncbl
     engine
     blast
     genbank
     genetic
+    unspecified
     its
 );
 
@@ -76,26 +81,53 @@ sub _assess {
     my $id = $record->recordid;
 
 
-    # Check negative matches
-    # my @mn;
-    # for my $pattern ( @neg ) {
-    #      if ( $method =~ /$pattern/i ) {
-    #         push @mn, $pattern;
-    #         $log->info("Negative match for $id: $pattern")
-    #     }
-    # }
-
-    # Check positive matches
-    my $retval = 0;
+    # Initialize flags for pattern matching
+    my $has_positive = 0;
+    my $has_negative = 0;
+    
+    # Check for positive matches (morphological identification indicators)
     for my $pattern ( @pos ) {
          if ( $method =~ /$pattern/i ) {
-            $retval = 1;
-            $log->info("Positive match for $id: $pattern")
+            $has_positive = 1;
+            $log->info("Positive match for $id: $pattern");
+            last; # Found at least one positive, no need to continue
         }
     }
-
+    
+    # Check for negative matches (molecular/automated identification indicators)
+    for my $pattern ( @neg ) {
+         if ( $method =~ /$pattern/i ) {
+            $has_negative = 1;
+            $log->info("Negative match for $id: $pattern");
+            last; # Found at least one negative, no need to continue
+        }
+    }
+    
+    # Determine score based on pattern combinations:
+    # 0 = No positive matches (includes no matches at all OR negative only)
+    # 1 = Positive matches only (pure morphological identification)
+    # 2 = Both positive and negative matches (mixed methods)
+    my $retval;
+    my $notes;
+    
+    if (!$has_positive) {
+        # No positive matches found - either no matches or negative only
+        $retval = 0;
+        $notes = "No morphological identification indicators found";
+    } elsif ($has_positive && !$has_negative) {
+        # Positive matches only - pure morphological identification
+        $retval = 1;
+        $notes = "Pure morphological identification indicators found";
+    } else {
+        # Both positive and negative matches - mixed methods
+        $retval = 2;
+        $notes = "Mixed identification methods detected (both morphological and molecular indicators)";
+    }
+    
+    $log->info("Final score for $id: $retval ($notes)");
+    
     # Return result
-    return $retval, "Based on positive match against any of '@pos'";
+    return $retval, $notes;
 }
 
 1;
