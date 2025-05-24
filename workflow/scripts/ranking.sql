@@ -37,7 +37,7 @@ SELECT
         WHEN pc.SPECIES_ID = 1 AND pc.SEQ_QUALITY = 1 AND pc.HAS_IMAGE = 1 AND pc.COUNTRY = 1 THEN 4
         WHEN pc.SPECIES_ID = 1 AND pc.SEQ_QUALITY = 1 AND pc.HAS_IMAGE = 1 THEN 5
         WHEN pc.SPECIES_ID = 1 AND pc.SEQ_QUALITY = 1 THEN 6
-        ELSE NULL
+        ELSE 7
     END AS ranking
 FROM
     bold b
