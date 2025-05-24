@@ -5,7 +5,7 @@
 [![DOI](https://zenodo.org/badge/DOI/10.48546/WORKFLOWHUB.WORKFLOW.833.1.svg)](https://doi.org/10.48546/WORKFLOWHUB.WORKFLOW.833.1)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
-![IBOL Logo](doc/IBOL_LOGO_TRANSPARENT.png)
+<img src="doc/IBOL_LOGO_TRANSPARENT.png" style="width: 200px;" alt="IBOL Logo">
 
 ## Overview
 
@@ -177,4 +177,4 @@ If you use this tool in your research, please cite:
 
 ## Acknowledgments
 
-This work is supported by the Biodiversity Genomics Europe (BGE) consortium and contributes to the International Barcode of Life (IBOL) initiative.
+This work is supported by the Biodiversity Genomics Europe (BGE) consortium and contributes to the International Barcode of Life (IBOL) initiative. Biodiversity Genomics Europe (Grant no.101059492) is funded by Horizon Europe under the Biodiversity, Circular Economy and Environment call (REA.B.3); co-funded by the Swiss State Secretariat for Education, Research and Innovation (SERI) under contract numbers 22.00173 and 24.00054; and by the UK Research and Innovation (UKRI) under the Department for Business, Energy and Industrial Strategy’s Horizon Europe Guarantee Scheme
