@@ -82,12 +82,17 @@ This document explains all configuration options in `config.yml` for the BOLD Li
   - Default: `"bold-curation"`
   - Used for project tracking and output labeling
 
-## Target List Configuration (Currently Disabled)
+## Target List Configuration
 
 - **`TARGET_LIST`**: CSV file containing target species list
   - Default: `resources/all_specs_and_syn.csv`
   - Contains species and synonyms for targeted curation
-  - **Note**: Currently commented out in the Snakefile
+
+- **`USE_TARGET_LIST`**: Enable/disable target list filtering
+  - Default: `false`
+  - Set to `true` to filter specimens to only target species
+  - When `false`: processes all specimens in the dataset
+  - When `true`: only processes specimens matching target species list
 
 ## System Configuration
 
