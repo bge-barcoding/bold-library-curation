@@ -1,6 +1,14 @@
 # Read configuration file
 configfile: "config/config.yml"
 
+# Helper function to determine the appropriate dependency for criteria assessment
+def get_taxonomy_dependency():
+    """Return appropriate dependency based on target list usage"""
+    if config.get("USE_TARGET_LIST", False):
+        return "results/target_loaded.ok"
+    else:
+        return "results/taxonomy_loaded.ok"
+
 # Final rule that brings it all together
 rule all:
     input:
@@ -92,32 +100,52 @@ rule load_taxonomy:
             --log {params.log_level} 2> {log} && touch {output}
         """
 
-# Rule for importing the target list and mapping to taxonomy
-# XXX: This is not needed until the target list export is ready
-# rule import_target_list_perl:
-#     input:
-#         perl_script="scripts/load_targetlist.pl",
-#         targetlist="../resources/all_specs_and_syn.csv",
-#         db=config["DB_FILE"]
-#     output:
-#         target="target_loaded.txt"
-#     shell:
-#         """
-#         perl {input.perl_script} \\
-#             --list {input.targetlist} \\
-#             --db {input.db} \\
-#             --log KINGDOM \\
-#             --project {config[PROJECT_NAME]} \\
-#             --taxon {config[TAXON_LEVEL]} \\
-#             --kingdom {config[KINGDOM]}
-#         """
+# Conditional rule for importing target list (only runs if USE_TARGET_LIST is true)
+if config.get("USE_TARGET_LIST", False):
+    rule import_target_list:
+        input:
+            db=config["DB_FILE"],
+            taxonomy_ok="results/taxonomy_loaded.ok",
+            targetlist=config["TARGET_LIST"]
+        output:
+            "results/target_loaded.ok"
+        params:
+            log_level=config['LOG_LEVEL'],
+            libs=config["LIBS"],
+            project=config["PROJECT_NAME"],
+            taxon=config["TAXON_LEVEL"],
+            kingdom=config["KINGDOM"]
+        log: "logs/load_target_list.log"
+        conda: "envs/load_taxonomy.yaml"
+        shell:
+            """
+            perl -I{params.libs} workflow/scripts/load_targetlist.pl \
+                --list {input.targetlist} \
+                --db {input.db} \
+                --log {params.log_level} \
+                --project {params.project} \
+                --taxon {params.taxon} \
+                --kingdom {params.kingdom} \
+                2> {log} && touch {output}
+            """
+else:
+    # Create a pass-through rule when target list is not used
+    rule skip_target_list:
+        input:
+            "results/taxonomy_loaded.ok"
+        output:
+            "results/target_loaded.ok"
+        shell:
+            "cp {input} {output}"
+
+
 
 # Rules for assessing criteria
 # COLLECTION_DATE
 rule COLLECTION_DATE:
     input:
         db=config["DB_FILE"],
-        taxonomy_ok="results/taxonomy_loaded.ok"
+        taxonomy_ok=get_taxonomy_dependency()
     params:
         log_level=config['LOG_LEVEL'],
         libs=config["LIBS"],
@@ -139,7 +167,7 @@ rule COLLECTION_DATE:
 rule COLLECTORS:
     input:
         db=config["DB_FILE"],
-        taxonomy_ok="results/taxonomy_loaded.ok"
+        taxonomy_ok=get_taxonomy_dependency()
     params:
         log_level=config['LOG_LEVEL'],
         libs=config["LIBS"],
@@ -161,7 +189,7 @@ rule COLLECTORS:
 rule COUNTRY:
     input:
         db=config["DB_FILE"],
-        taxonomy_ok="results/taxonomy_loaded.ok"
+        taxonomy_ok=get_taxonomy_dependency()
     params:
         log_level=config['LOG_LEVEL'],
         libs=config["LIBS"],
@@ -183,7 +211,7 @@ rule COUNTRY:
 rule ID_METHOD:
     input:
         db=config["DB_FILE"],
-        taxonomy_ok="results/taxonomy_loaded.ok"
+        taxonomy_ok=get_taxonomy_dependency()
     params:
         log_level=config['LOG_LEVEL'],
         libs=config["LIBS"],
@@ -206,7 +234,7 @@ rule ID_METHOD:
 rule IDENTIFIER:
     input:
         db=config["DB_FILE"],
-        taxonomy_ok="results/taxonomy_loaded.ok"
+        taxonomy_ok=get_taxonomy_dependency()
     params:
         log_level=config['LOG_LEVEL'],
         libs=config["LIBS"],
@@ -228,7 +256,7 @@ rule IDENTIFIER:
 rule INSTITUTION:
     input:
         db=config["DB_FILE"],
-        taxonomy_ok="results/taxonomy_loaded.ok"
+        taxonomy_ok=get_taxonomy_dependency()
     params:
         log_level=config['LOG_LEVEL'],
         libs=config["LIBS"],
@@ -249,7 +277,7 @@ rule INSTITUTION:
 rule COORD:
     input:
         db=config["DB_FILE"],
-        taxonomy_ok="results/taxonomy_loaded.ok"
+        taxonomy_ok=get_taxonomy_dependency()
     params:
         log_level=config['LOG_LEVEL'],
         libs=config["LIBS"],
@@ -270,7 +298,7 @@ rule COORD:
 rule MUSEUM_ID:
     input:
         db=config["DB_FILE"],
-        taxonomy_ok="results/taxonomy_loaded.ok"
+        taxonomy_ok=get_taxonomy_dependency()
     params:
         log_level=config['LOG_LEVEL'],
         libs=config["LIBS"],
@@ -293,7 +321,7 @@ rule MUSEUM_ID:
 rule PUBLIC_VOUCHER:
     input:
         db=config["DB_FILE"],
-        taxonomy_ok="results/taxonomy_loaded.ok"
+        taxonomy_ok=get_taxonomy_dependency()
     params:
         log_level=config['LOG_LEVEL'],
         libs=config["LIBS"],
@@ -315,7 +343,7 @@ rule PUBLIC_VOUCHER:
 rule SEQ_QUALITY:
     input:
         db=config["DB_FILE"],
-        taxonomy_ok="results/taxonomy_loaded.ok"
+        taxonomy_ok=get_taxonomy_dependency()
     params:
         log_level=config['LOG_LEVEL'],
         libs=config["LIBS"],
@@ -338,7 +366,7 @@ rule SEQ_QUALITY:
 rule SITE:
     input:
         db=config["DB_FILE"],
-        taxonomy_ok="results/taxonomy_loaded.ok"
+        taxonomy_ok=get_taxonomy_dependency()
     params:
         log_level=config['LOG_LEVEL'],
         libs=config["LIBS"],
@@ -360,7 +388,7 @@ rule SITE:
 rule REGION:
     input:
         db=config["DB_FILE"],
-        taxonomy_ok="results/taxonomy_loaded.ok"
+        taxonomy_ok=get_taxonomy_dependency()
     params:
         log_level=config['LOG_LEVEL'],
         libs=config["LIBS"],
@@ -381,7 +409,7 @@ rule REGION:
 rule SECTOR:
     input:
         db=config["DB_FILE"],
-        taxonomy_ok="results/taxonomy_loaded.ok"
+        taxonomy_ok=get_taxonomy_dependency()
     params:
         log_level=config['LOG_LEVEL'],
         libs=config["LIBS"],
@@ -403,7 +431,7 @@ rule SECTOR:
 rule SPECIES_ID:
     input:
         db=config["DB_FILE"],
-        taxonomy_ok="results/taxonomy_loaded.ok"
+        taxonomy_ok=get_taxonomy_dependency()
     params:
         log_level=config['LOG_LEVEL'],
         libs=config["LIBS"],
@@ -425,7 +453,7 @@ rule SPECIES_ID:
 rule TYPE_SPECIMEN:
     input:
         db=config["DB_FILE"],
-        taxonomy_ok="results/taxonomy_loaded.ok"
+        taxonomy_ok=get_taxonomy_dependency()
     params:
         log_level=config['LOG_LEVEL'],
         libs=config["LIBS"],
@@ -447,7 +475,7 @@ rule TYPE_SPECIMEN:
 rule HAS_IMAGE:
     input:
         db=config["DB_FILE"],
-        taxonomy_ok="results/taxonomy_loaded.ok"
+        taxonomy_ok=get_taxonomy_dependency()
     params:
         log_level=config['LOG_LEVEL'],
         libs=config["LIBS"]
