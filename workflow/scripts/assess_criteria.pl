@@ -66,11 +66,13 @@ if ( $db_file && $schema ) {
             my $bt_count = 0;
             
             while ( my $bt = $bold_targets->next ) {
-                my $taxonid = $bt->taxonid;
+                # Use get_column to get the actual integer taxonid, not the Taxa object
+                my $taxonid = $bt->get_column('taxonid');
                 if (defined $taxonid) {
                     $target_taxa{$taxonid} = 1;
                     push @debug_target_list, $taxonid;
                     $bt_count++;
+                    $log->debug("DEBUG: Loaded target taxonid: $taxonid");
                 } else {
                     $log->warn("WARNING: Found BoldTarget record with undefined taxonid");
                 }
@@ -125,8 +127,13 @@ sub record_matches_targets {
     my $recordid = eval { $record->recordid } || "UNKNOWN";
     my $processid = eval { $record->processid } || "UNKNOWN";
     
-    # Check if record's taxon is in our target set
-    my $taxonid = eval { $record->taxonid };
+    # Get the actual integer taxonid - use get_column if it's an ORM object
+    my $taxonid;
+    if (ref($record) && $record->can('get_column')) {
+        $taxonid = eval { $record->get_column('taxonid') };
+    } else {
+        $taxonid = eval { $record->taxonid };
+    }
     
     # Handle undefined taxonid
     if (!defined $taxonid) {
@@ -169,7 +176,15 @@ while (my $record = $io->next) {
     $target_processed++;
     my $recordid = eval { $record->recordid } || "UNKNOWN";
     my $processid = eval { $record->processid } || "UNKNOWN";
-    my $taxonid = eval { $record->taxonid } || "UNDEFINED";
+    
+    # Get actual integer taxonid consistently
+    my $taxonid;
+    if (ref($record) && $record->can('get_column')) {
+        $taxonid = eval { $record->get_column('taxonid') };
+    } else {
+        $taxonid = eval { $record->taxonid };
+    }
+    $taxonid = $taxonid || "UNDEFINED";
     
     push @processed_recordids, $recordid;
     
