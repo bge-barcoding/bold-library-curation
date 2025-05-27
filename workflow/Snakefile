@@ -9,6 +9,14 @@ def get_taxonomy_dependency():
     else:
         return "results/taxonomy_loaded.ok"
 
+# Helper function to get the input TSV file for database creation
+def get_bold_tsv_input():
+    """Return the appropriate BOLD TSV input file"""
+    if config.get("ENABLE_PRESCORING_FILTER", False):
+        return config["PRESCORING_FILTERED_OUTPUT"]
+    else:
+        return config["BOLD_TSV"]
+
 # Conditional rule for pre-scoring filter
 if config.get("ENABLE_PRESCORING_FILTER", False):
     rule prescoring_filter:
@@ -50,9 +58,8 @@ rule clean:
 # Rule for creating the database and loading BCDM
 rule create_load_db:
     input:
-        bold_tsv=config["PRESCORING_FILTERED_OUTPUT"] if config.get("ENABLE_PRESCORING_FILTER", False) else config["BOLD_TSV"],
-        schema=config["SCHEMA"],
-        filter_done=config["PRESCORING_FILTERED_OUTPUT"] if config.get("ENABLE_PRESCORING_FILTER", False) else []
+        bold_tsv=get_bold_tsv_input(),
+        schema=config["SCHEMA"]
     output: config["DB_FILE"]
     params: log_level=config['LOG_LEVEL']
     log: "logs/create_load_db.log"
