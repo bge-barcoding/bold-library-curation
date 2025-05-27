@@ -17,6 +17,16 @@ def get_bold_tsv_input():
     else:
         return config["BOLD_TSV"]
 
+# Helper function to get the dependencies for database creation
+def get_db_creation_dependencies():
+    """Return appropriate dependencies for database creation based on prescoring filter usage"""
+    dependencies = [config["SCHEMA"]]
+    if config.get("ENABLE_PRESCORING_FILTER", False):
+        dependencies.append(config["PRESCORING_FILTERED_OUTPUT"])
+    else:
+        dependencies.append(config["BOLD_TSV"])
+    return dependencies
+
 # Conditional rule for pre-scoring filter
 if config.get("ENABLE_PRESCORING_FILTER", False):
     rule prescoring_filter:
@@ -58,17 +68,16 @@ rule clean:
 # Rule for creating the database and loading BCDM
 rule create_load_db:
     input:
-        bold_tsv=get_bold_tsv_input(),
-        schema=config["SCHEMA"]
+        get_db_creation_dependencies()
     output: config["DB_FILE"]
     params: log_level=config['LOG_LEVEL']
     log: "logs/create_load_db.log"
     conda: "envs/create_load_db.yaml"
     shell:
         "perl workflow/scripts/load_bcdm.pl \
-            --tsv {input.bold_tsv} \
+            --tsv {input[1]} \
             --db {output} \
-            --sql {input.schema} \
+            --sql {input[0]} \
             --log {params.log_level} \
             --force 2> {log}"
 
