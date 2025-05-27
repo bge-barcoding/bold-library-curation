@@ -9,10 +9,65 @@ def get_taxonomy_dependency():
     else:
         return "results/taxonomy_loaded.ok"
 
+# Rule for pre-scoring filter (conditional execution)
+rule prescoring_filter:
+    input:
+        bold_tsv=config["BOLD_TSV"]
+    output:
+        filtered_file=config["PRESCORING_FILTERED_OUTPUT"],
+        marker="results/prescoring_filter.ok"
+    params:
+        taxa_arg=lambda wildcards: f"--taxa-list {config['FILTER_TAXA_LIST']}" if config.get("FILTER_TAXA", False) and config.get("FILTER_TAXA_LIST") else "",
+        country_arg=lambda wildcards: f"--country-list {config['FILTER_COUNTRY_LIST']}" if config.get("FILTER_COUNTRIES", False) and config.get("FILTER_COUNTRY_LIST") else "",
+        bin_arg="--enable-bin-sharing" if config.get("FILTER_BINS", False) else "",
+        log_level=config['LOG_LEVEL'],
+        enable_filter=config.get("ENABLE_PRESCORING_FILTER", False)
+    log: "logs/prescoring_filter.log"
+    conda: "envs/prescoring_filter.yaml" if config.get("ENABLE_PRESCORING_FILTER", False) else None
+    run:
+        import os
+        import subprocess
+        
+        # Ensure output directory exists
+        output_dir = os.path.dirname(output.filtered_file)
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
+        
+        if params.enable_filter:
+            # Run the filtering script
+            cmd = [
+                "python", "workflow/scripts/prescoring_filter.py",
+                "--input", input.bold_tsv,
+                "--output", output.filtered_file,
+                "--log-level", params.log_level
+            ]
+            
+            # Add optional arguments
+            if params.taxa_arg:
+                cmd.extend(params.taxa_arg.split())
+            if params.country_arg:
+                cmd.extend(params.country_arg.split())
+            if params.bin_arg:
+                cmd.append(params.bin_arg)
+            
+            with open(log[0], 'w') as logfile:
+                subprocess.run(cmd, stderr=logfile, check=True)
+        else:
+            # Just copy the original file
+            import shutil
+            shutil.copy2(input.bold_tsv, output.filtered_file)
+            with open(log[0], 'w') as logfile:
+                logfile.write("Filtering disabled - copied original file\n")
+        
+        # Create completion marker
+        with open(output.marker, 'w') as f:
+            f.write("Prescoring filter completed\n")
+
 # Final rule that brings it all together
 rule all:
     input:
         "results/result_output.tsv"
+    default_target: True
 
 # Rule for removing intermediate output
 rule clean:
@@ -24,15 +79,16 @@ rule clean:
 # Rule for creating the database and loading BCDM
 rule create_load_db:
     input:
-        bold_tsv=config["BOLD_TSV"],
-        schema=config["SCHEMA"]
+        schema=config["SCHEMA"],
+        tsv_file=config["PRESCORING_FILTERED_OUTPUT"],  # Always use filtered output (either filtered or copied)
+        prescoring_ok="results/prescoring_filter.ok"  # Explicit dependency
     output: config["DB_FILE"]
     params: log_level=config['LOG_LEVEL']
     log: "logs/create_load_db.log"
     conda: "envs/create_load_db.yaml"
     shell:
         "perl workflow/scripts/load_bcdm.pl \
-            --tsv {input.bold_tsv} \
+            --tsv {input.tsv_file} \
             --db {output} \
             --sql {input.schema} \
             --log {params.log_level} \

@@ -1,5 +1,5 @@
 config:
-BOLD_TSV: resources/test_chironominae_norway_data.tsv
+BOLD_TSV: resources/test_data/test_odonata_large.tsv
 DB_FILE: results/bold.db
 SCHEMA: workflow/scripts/schema.sql
 INDEXES: workflow/scripts/indexes.sql
@@ -8,10 +8,19 @@ PATH: lib/
 TAXONOMY_LOADED: results/taxonomy_check.tsv
 CRITERIA: "COLLECTION_DATE COLLECTORS COORD COUNTRY REGION SECTOR HAS_IMAGE IDENTIFIER ID_METHOD INSTITUTION MUSEUM_ID PUBLIC_VOUCHER SEQ_QUALITY SITE SPECIES_ID TYPE_SPECIMEN"
 DB_FILE_INDEXED: results/bold_indexed.ok
-TARGET_LIST: resources/test_chironominae_norway_spec_and_syn.csv
-USE_TARGET_LIST: true
+TARGET_LIST: resources/test_data/test_odonata_spec.csv
+USE_TARGET_LIST: false
 PROJECT_NAME: "bold-curation"
 TAXON_LEVEL: "species"
 KINGDOM: "Animalia"
 LOG_LEVEL: "INFO" 
 DB_CRITERIA_ADDED: results/criteria_indexed
+
+# Pre-scoring filter options
+ENABLE_PRESCORING_FILTER: true  # Master switch true / false
+FILTER_TAXA: true  # true / false
+FILTER_TAXA_LIST: "resources/test_data/test_odonata_spec.csv"
+FILTER_COUNTRIES: false  # true / false
+FILTER_COUNTRY_LIST: "resources/countries/test_odonata.txt"
+FILTER_BINS: false  # Include BIN_URI sharing true / false
+PRESCORING_FILTERED_OUTPUT: "results/test_odonata_large_filtered.tsv"

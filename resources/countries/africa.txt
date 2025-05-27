@@ -1,0 +1,56 @@
+# African Countries - ISO 3166-1 Alpha-2 Codes
+AO;Angola
+BF;Burkina Faso
+BI;Burundi
+BJ;Benin
+BW;Botswana
+CD;Democratic Republic of the Congo;DRC
+CF;Central African Republic
+CG;Republic of the Congo;Congo
+CI;Côte d'Ivoire;Ivory Coast
+CM;Cameroon
+CV;Cape Verde
+DJ;Djibouti
+DZ;Algeria
+EG;Egypt
+EH;Western Sahara
+ER;Eritrea
+ET;Ethiopia
+GA;Gabon
+GH;Ghana
+GM;Gambia
+GN;Guinea
+GQ;Equatorial Guinea
+GW;Guinea-Bissau
+KE;Kenya
+KM;Comoros
+LR;Liberia
+LS;Lesotho
+LY;Libya
+MA;Morocco
+MG;Madagascar
+ML;Mali
+MR;Mauritania
+MU;Mauritius
+MW;Malawi
+MZ;Mozambique
+NA;Namibia
+NE;Niger
+NG;Nigeria
+RW;Rwanda
+SC;Seychelles
+SD;Sudan
+SL;Sierra Leone
+SN;Senegal
+SO;Somalia
+SS;South Sudan
+ST;São Tomé and Príncipe
+SZ;Eswatini;Swaziland
+TD;Chad
+TG;Togo
+TN;Tunisia
+TZ;Tanzania
+UG;Uganda
+ZA;South Africa
+ZM;Zambia
+ZW;Zimbabwe

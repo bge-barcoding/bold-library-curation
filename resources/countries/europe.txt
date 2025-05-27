@@ -1,0 +1,51 @@
+# European Countries - ISO 3166-1 Alpha-2 Codes
+AD;Andorra
+AL;Albania
+AM;Armenia
+AT;Austria
+AZ;Azerbaijan
+BA;Bosnia and Herzegovina
+BE;Belgium
+BG;Bulgaria
+BY;Belarus
+CH;Switzerland
+CY;Cyprus
+CZ;Czech Republic;Czechia
+DE;Germany
+DK;Denmark
+EE;Estonia
+ES;Spain
+FI;Finland
+FR;France
+GB;United Kingdom;UK
+GE;Georgia
+GR;Greece
+HR;Croatia
+HU;Hungary
+IE;Ireland
+IS;Iceland
+IT;Italy
+LI;Liechtenstein
+LT;Lithuania
+LU;Luxembourg
+LV;Latvia
+MC;Monaco
+MD;Moldova
+ME;Montenegro
+MK;North Macedonia;Macedonia
+MT;Malta
+NL;Netherlands
+NO;Norway
+PL;Poland
+PT;Portugal
+RO;Romania
+RS;Serbia
+RU;Russia;Russian Federation
+SE;Sweden
+SI;Slovenia
+SK;Slovakia
+SM;San Marino
+TR;Turkey
+UA;Ukraine
+VA;Vatican City
+XK;Kosovo
