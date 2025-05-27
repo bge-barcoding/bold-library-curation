@@ -14,7 +14,8 @@ rule prescoring_filter:
     input:
         bold_tsv=config["BOLD_TSV"]
     output:
-        config["PRESCORING_FILTERED_OUTPUT"]
+        filtered_file=config["PRESCORING_FILTERED_OUTPUT"],
+        marker="results/prescoring_filter.ok"
     params:
         taxa_arg=lambda wildcards: f"--taxa-list {config['FILTER_TAXA_LIST']}" if config.get("FILTER_TAXA", False) and config.get("FILTER_TAXA_LIST") else "",
         country_arg=lambda wildcards: f"--country-list {config['FILTER_COUNTRY_LIST']}" if config.get("FILTER_COUNTRIES", False) and config.get("FILTER_COUNTRY_LIST") else "",
@@ -28,14 +29,16 @@ rule prescoring_filter:
         import subprocess
         
         # Ensure output directory exists
-        os.makedirs(os.path.dirname(output[0]), exist_ok=True)
+        output_dir = os.path.dirname(output.filtered_file)
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
         
         if params.enable_filter:
             # Run the filtering script
             cmd = [
                 "python", "workflow/scripts/prescoring_filter.py",
                 "--input", input.bold_tsv,
-                "--output", output[0],
+                "--output", output.filtered_file,
                 "--log-level", params.log_level
             ]
             
@@ -52,14 +55,19 @@ rule prescoring_filter:
         else:
             # Just copy the original file
             import shutil
-            shutil.copy2(input.bold_tsv, output[0])
+            shutil.copy2(input.bold_tsv, output.filtered_file)
             with open(log[0], 'w') as logfile:
                 logfile.write("Filtering disabled - copied original file\n")
+        
+        # Create completion marker
+        with open(output.marker, 'w') as f:
+            f.write("Prescoring filter completed\n")
 
 # Final rule that brings it all together
 rule all:
     input:
         "results/result_output.tsv"
+    default_target: True
 
 # Rule for removing intermediate output
 rule clean:
@@ -72,7 +80,8 @@ rule clean:
 rule create_load_db:
     input:
         schema=config["SCHEMA"],
-        tsv_file=config["PRESCORING_FILTERED_OUTPUT"]  # Always use filtered output (either filtered or copied)
+        tsv_file=config["PRESCORING_FILTERED_OUTPUT"],  # Always use filtered output (either filtered or copied)
+        prescoring_ok="results/prescoring_filter.ok"  # Explicit dependency
     output: config["DB_FILE"]
     params: log_level=config['LOG_LEVEL']
     log: "logs/create_load_db.log"

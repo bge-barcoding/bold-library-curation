@@ -1,5 +1,5 @@
 config:
-BOLD_TSV: resources/test_data/test_odonata_small.tsv
+BOLD_TSV: resources/test_data/test_odonata_large.tsv
 DB_FILE: results/bold.db
 SCHEMA: workflow/scripts/schema.sql
 INDEXES: workflow/scripts/indexes.sql
@@ -21,6 +21,6 @@ ENABLE_PRESCORING_FILTER: true  # Master switch true / false
 FILTER_TAXA: true  # true / false
 FILTER_TAXA_LIST: "resources/test_data/test_odonata_spec.csv"
 FILTER_COUNTRIES: false  # true / false
-FILTER_COUNTRY_LIST: "/resources/countries/test_odonata.txt"
+FILTER_COUNTRY_LIST: "resources/countries/test_odonata.txt"
 FILTER_BINS: false  # Include BIN_URI sharing true / false
-PRESCORING_FILTERED_OUTPUT: "results/test_data/test_odonata_small_filtered.tsv"
+PRESCORING_FILTERED_OUTPUT: "results/test_odonata_large_filtered.tsv"
