@@ -9,6 +9,32 @@ def get_taxonomy_dependency():
     else:
         return "results/taxonomy_loaded.ok"
 
+# Conditional rule for pre-scoring filter
+if config.get("ENABLE_PRESCORING_FILTER", False):
+    rule prescoring_filter:
+        input:
+            bold_tsv=config["BOLD_TSV"]
+        output:
+            config["PRESCORING_FILTERED_OUTPUT"]
+        params:
+            taxa_arg=lambda wildcards: f"--taxa-list {config['FILTER_TAXA_LIST']}" if config.get("FILTER_TAXA", False) and config.get("FILTER_TAXA_LIST") else "",
+            country_arg=lambda wildcards: f"--country-list {config['FILTER_COUNTRY_LIST']}" if config.get("FILTER_COUNTRIES", False) and config.get("FILTER_COUNTRY_LIST") else "",
+            bin_arg="--enable-bin-sharing" if config.get("FILTER_BINS", False) else "",
+            log_level=config['LOG_LEVEL']
+        log: "logs/prescoring_filter.log"
+        conda: "envs/prescoring_filter.yaml"
+        shell:
+            """
+            python workflow/scripts/prescoring_filter.py \
+                --input {input.bold_tsv} \
+                --output {output} \
+                {params.taxa_arg} \
+                {params.country_arg} \
+                {params.bin_arg} \
+                --log-level {params.log_level} \
+                2> {log}
+            """
+
 # Final rule that brings it all together
 rule all:
     input:
@@ -24,8 +50,9 @@ rule clean:
 # Rule for creating the database and loading BCDM
 rule create_load_db:
     input:
-        bold_tsv=config["BOLD_TSV"],
-        schema=config["SCHEMA"]
+        bold_tsv=config["PRESCORING_FILTERED_OUTPUT"] if config.get("ENABLE_PRESCORING_FILTER", False) else config["BOLD_TSV"],
+        schema=config["SCHEMA"],
+        filter_done=config["PRESCORING_FILTERED_OUTPUT"] if config.get("ENABLE_PRESCORING_FILTER", False) else []
     output: config["DB_FILE"]
     params: log_level=config['LOG_LEVEL']
     log: "logs/create_load_db.log"

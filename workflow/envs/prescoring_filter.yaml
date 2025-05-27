@@ -1,0 +1,7 @@
+name: prescoring_filter
+channels:
+  - conda-forge
+dependencies:
+  - python=3.9
+  - pandas>=1.3
+  - numpy>=1.20

@@ -15,3 +15,12 @@ TAXON_LEVEL: "species"
 KINGDOM: "Animalia"
 LOG_LEVEL: "INFO" 
 DB_CRITERIA_ADDED: results/criteria_indexed
+
+# Pre-scoring filter options
+ENABLE_PRESCORING_FILTER: false  # Master switch
+FILTER_TAXA: false
+FILTER_TAXA_LIST: ""
+FILTER_COUNTRIES: false  
+FILTER_COUNTRY_LIST: ""
+FILTER_BINS: false  # Include BIN_URI sharing
+PRESCORING_FILTERED_OUTPUT: "results/prescoring_filtered.tsv"
