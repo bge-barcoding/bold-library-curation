@@ -1,0 +1,4 @@
+CA;Canada
+MG;Madagascar
+ZA;South Africa
+TZ;Tanzania
