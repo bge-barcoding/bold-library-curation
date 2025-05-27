@@ -9,14 +9,6 @@ def get_taxonomy_dependency():
     else:
         return "results/taxonomy_loaded.ok"
 
-# Helper function to get the input TSV file for database creation
-def get_bold_tsv_input():
-    """Return the appropriate BOLD TSV input file"""
-    if config.get("ENABLE_PRESCORING_FILTER", False):
-        return config["PRESCORING_FILTERED_OUTPUT"]
-    else:
-        return config["BOLD_TSV"]
-
 # Helper function to get database creation inputs
 def get_db_inputs(wildcards):
     """Return inputs for database creation based on prescoring filter setting"""
@@ -27,43 +19,37 @@ def get_db_inputs(wildcards):
         inputs["tsv_file"] = config["BOLD_TSV"]
     return inputs
 
-# Helper function to get all required final outputs
-def get_all_outputs():
-    """Return all required outputs for the final rule"""
-    outputs = ["results/result_output.tsv"]
-    if config.get("ENABLE_PRESCORING_FILTER", False):
-        outputs.append(config["PRESCORING_FILTERED_OUTPUT"])
-    return outputs
-
-# Rule for pre-scoring filter (always defined, but only runs when enabled)
-rule prescoring_filter:
-    input:
-        bold_tsv=config["BOLD_TSV"]
-    output:
-        config["PRESCORING_FILTERED_OUTPUT"]
-    params:
-        taxa_arg=lambda wildcards: f"--taxa-list {config['FILTER_TAXA_LIST']}" if config.get("FILTER_TAXA", False) and config.get("FILTER_TAXA_LIST") else "",
-        country_arg=lambda wildcards: f"--country-list {config['FILTER_COUNTRY_LIST']}" if config.get("FILTER_COUNTRIES", False) and config.get("FILTER_COUNTRY_LIST") else "",
-        bin_arg="--enable-bin-sharing" if config.get("FILTER_BINS", False) else "",
-        log_level=config['LOG_LEVEL']
-    log: "logs/prescoring_filter.log"
-    conda: "envs/prescoring_filter.yaml"
-    shell:
-        """
-        python workflow/scripts/prescoring_filter.py \
-            --input {input.bold_tsv} \
-            --output {output} \
-            {params.taxa_arg} \
-            {params.country_arg} \
-            {params.bin_arg} \
-            --log-level {params.log_level} \
-            2> {log}
-        """
+# Conditional rule for pre-scoring filter (only defined when enabled)
+if config.get("ENABLE_PRESCORING_FILTER", False):
+    rule prescoring_filter:
+        input:
+            bold_tsv=config["BOLD_TSV"]
+        output:
+            config["PRESCORING_FILTERED_OUTPUT"]
+        params:
+            taxa_arg=lambda wildcards: f"--taxa-list {config['FILTER_TAXA_LIST']}" if config.get("FILTER_TAXA", False) and config.get("FILTER_TAXA_LIST") else "",
+            country_arg=lambda wildcards: f"--country-list {config['FILTER_COUNTRY_LIST']}" if config.get("FILTER_COUNTRIES", False) and config.get("FILTER_COUNTRY_LIST") else "",
+            bin_arg="--enable-bin-sharing" if config.get("FILTER_BINS", False) else "",
+            log_level=config['LOG_LEVEL']
+        log: "logs/prescoring_filter.log"
+        conda: "envs/prescoring_filter.yaml"
+        shell:
+            """
+            mkdir -p $(dirname {output})
+            python workflow/scripts/prescoring_filter.py \
+                --input {input.bold_tsv} \
+                --output {output} \
+                {params.taxa_arg} \
+                {params.country_arg} \
+                {params.bin_arg} \
+                --log-level {params.log_level} \
+                2> {log}
+            """
 
 # Final rule that brings it all together
 rule all:
     input:
-        get_all_outputs()
+        "results/result_output.tsv"
 
 # Rule for removing intermediate output
 rule clean:
