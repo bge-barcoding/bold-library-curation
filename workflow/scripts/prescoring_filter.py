@@ -4,6 +4,14 @@ Pre-scoring filter for BOLD library curation workflow.
 
 This script filters BOLD TSV data before database creation to reduce dataset size
 and improve performance for small target lists.
+
+The filtering process:
+1. Finds records matching taxa and/or country criteria
+2. Optionally expands the dataset by including all records sharing BIN_URIs with the matched records
+3. Always preserves records that match the initial criteria, even if they lack BIN_URIs
+
+Records without BIN_URIs that match the taxa/country criteria are always kept - 
+the purpose of BIN expansion is to add additional related records, not to exclude existing ones.
 """
 
 import argparse
@@ -174,6 +182,8 @@ def get_bins_for_processids(processids: Set[str], input_file: str) -> Set[str]:
         Set of BIN_URIs associated with the processids
     """
     bins = set()
+    processids_with_bins = 0
+    processids_without_bins = 0
     
     with open(input_file, 'r', encoding='utf-8') as f:
         reader = csv.DictReader(f, delimiter='\t')
@@ -184,8 +194,13 @@ def get_bins_for_processids(processids: Set[str], input_file: str) -> Set[str]:
                 bin_uri = row.get('bin_uri', '').strip()
                 if bin_uri and bin_uri.lower() != 'none':
                     bins.add(bin_uri)
+                    processids_with_bins += 1
+                else:
+                    processids_without_bins += 1
     
     logging.info(f"Found {len(bins)} unique BIN_URIs for {len(processids)} processids")
+    logging.info(f"  - {processids_with_bins} processids have BIN_URIs")
+    logging.info(f"  - {processids_without_bins} processids have no BIN_URI (will be preserved)")
     return bins
 
 
@@ -364,9 +379,15 @@ def prescoring_filter(
     initial_matches = len(matching_processids)
     logging.info(f"Initial filtering matched {initial_matches} processids")
     
+    # Store original matches (including those without bin_uri) to preserve them
+    original_matches = matching_processids.copy()
+    
     # BIN sharing expansion
     if enable_bin_sharing and matching_processids and 'bin' in column_map:
-        matching_processids = expand_by_bin_sharing(matching_processids, input_tsv)
+        expanded_matches = expand_by_bin_sharing(matching_processids, input_tsv)
+        # Always include original matches even if they don't have bin_uri
+        matching_processids = original_matches.union(expanded_matches)
+        logging.info(f"Combined original matches with BIN expansion: {len(matching_processids)} total processids")
     elif enable_bin_sharing and not matching_processids:
         logging.warning("BIN sharing requested but no initial matches found")
     elif enable_bin_sharing:
