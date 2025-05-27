@@ -104,24 +104,29 @@ sub _assess {
     }
     
     # Determine score based on pattern combinations:
-    # 0 = No positive matches (includes no matches at all OR negative only)
-    # 1 = Positive matches only (pure morphological identification)
-    # 2 = Both positive and negative matches (mixed methods)
+    # 0 = no match
+    # 1 = negative match only
+    # 2 = positive and negative match
+    # 3 = positive match only
     my $retval;
     my $notes;
     
-    if (!$has_positive) {
-        # No positive matches found - either no matches or negative only
+    if (!$has_positive && !$has_negative) {
+        # No matches found at all
         $retval = 0;
-        $notes = "No morphological identification indicators found";
-    } elsif ($has_positive && !$has_negative) {
-        # Positive matches only - pure morphological identification
+        $notes = "No identification method indicators found";
+    } elsif (!$has_positive && $has_negative) {
+        # Negative matches only - molecular/automated identification
         $retval = 1;
-        $notes = "Pure morphological identification indicators found";
-    } else {
+        $notes = "Molecular/automated identification indicators only";
+    } elsif ($has_positive && $has_negative) {
         # Both positive and negative matches - mixed methods
         $retval = 2;
         $notes = "Mixed identification methods detected (both morphological and molecular indicators)";
+    } else {
+        # Positive matches only - pure morphological identification
+        $retval = 3;
+        $notes = "Pure morphological identification indicators found";
     }
     
     $log->info("Final score for $id: $retval ($notes)");
