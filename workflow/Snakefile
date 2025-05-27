@@ -9,32 +9,52 @@ def get_taxonomy_dependency():
     else:
         return "results/taxonomy_loaded.ok"
 
-# Conditional rule for pre-scoring filter (only defined when enabled)
-if config.get("ENABLE_PRESCORING_FILTER", False):
-    rule prescoring_filter:
-        input:
-            bold_tsv=config["BOLD_TSV"]
-        output:
-            config["PRESCORING_FILTERED_OUTPUT"]
-        params:
-            taxa_arg=lambda wildcards: f"--taxa-list {config['FILTER_TAXA_LIST']}" if config.get("FILTER_TAXA", False) and config.get("FILTER_TAXA_LIST") else "",
-            country_arg=lambda wildcards: f"--country-list {config['FILTER_COUNTRY_LIST']}" if config.get("FILTER_COUNTRIES", False) and config.get("FILTER_COUNTRY_LIST") else "",
-            bin_arg="--enable-bin-sharing" if config.get("FILTER_BINS", False) else "",
-            log_level=config['LOG_LEVEL']
-        log: "logs/prescoring_filter.log"
-        conda: "envs/prescoring_filter.yaml"
-        shell:
-            """
-            mkdir -p $(dirname {output})
-            python workflow/scripts/prescoring_filter.py \
-                --input {input.bold_tsv} \
-                --output {output} \
-                {params.taxa_arg} \
-                {params.country_arg} \
-                {params.bin_arg} \
-                --log-level {params.log_level} \
-                2> {log}
-            """
+# Rule for pre-scoring filter (conditional execution)
+rule prescoring_filter:
+    input:
+        bold_tsv=config["BOLD_TSV"]
+    output:
+        config["PRESCORING_FILTERED_OUTPUT"]
+    params:
+        taxa_arg=lambda wildcards: f"--taxa-list {config['FILTER_TAXA_LIST']}" if config.get("FILTER_TAXA", False) and config.get("FILTER_TAXA_LIST") else "",
+        country_arg=lambda wildcards: f"--country-list {config['FILTER_COUNTRY_LIST']}" if config.get("FILTER_COUNTRIES", False) and config.get("FILTER_COUNTRY_LIST") else "",
+        bin_arg="--enable-bin-sharing" if config.get("FILTER_BINS", False) else "",
+        log_level=config['LOG_LEVEL'],
+        enable_filter=config.get("ENABLE_PRESCORING_FILTER", False)
+    log: "logs/prescoring_filter.log"
+    conda: "envs/prescoring_filter.yaml" if config.get("ENABLE_PRESCORING_FILTER", False) else None
+    run:
+        import os
+        import subprocess
+        
+        # Ensure output directory exists
+        os.makedirs(os.path.dirname(output[0]), exist_ok=True)
+        
+        if params.enable_filter:
+            # Run the filtering script
+            cmd = [
+                "python", "workflow/scripts/prescoring_filter.py",
+                "--input", input.bold_tsv,
+                "--output", output[0],
+                "--log-level", params.log_level
+            ]
+            
+            # Add optional arguments
+            if params.taxa_arg:
+                cmd.extend(params.taxa_arg.split())
+            if params.country_arg:
+                cmd.extend(params.country_arg.split())
+            if params.bin_arg:
+                cmd.append(params.bin_arg)
+            
+            with open(log[0], 'w') as logfile:
+                subprocess.run(cmd, stderr=logfile, check=True)
+        else:
+            # Just copy the original file
+            import shutil
+            shutil.copy2(input.bold_tsv, output[0])
+            with open(log[0], 'w') as logfile:
+                logfile.write("Filtering disabled - copied original file\n")
 
 # Final rule that brings it all together
 rule all:
@@ -49,38 +69,21 @@ rule clean:
         """
 
 # Rule for creating the database and loading BCDM
-if config.get("ENABLE_PRESCORING_FILTER", False):
-    rule create_load_db:
-        input:
-            schema=config["SCHEMA"],
-            tsv_file=config["PRESCORING_FILTERED_OUTPUT"]
-        output: config["DB_FILE"]
-        params: log_level=config['LOG_LEVEL']
-        log: "logs/create_load_db.log"
-        conda: "envs/create_load_db.yaml"
-        shell:
-            "perl workflow/scripts/load_bcdm.pl \
-                --tsv {input.tsv_file} \
-                --db {output} \
-                --sql {input.schema} \
-                --log {params.log_level} \
-                --force 2> {log}"
-else:
-    rule create_load_db:
-        input:
-            schema=config["SCHEMA"],
-            tsv_file=config["BOLD_TSV"]
-        output: config["DB_FILE"]
-        params: log_level=config['LOG_LEVEL']
-        log: "logs/create_load_db.log"
-        conda: "envs/create_load_db.yaml"
-        shell:
-            "perl workflow/scripts/load_bcdm.pl \
-                --tsv {input.tsv_file} \
-                --db {output} \
-                --sql {input.schema} \
-                --log {params.log_level} \
-                --force 2> {log}"
+rule create_load_db:
+    input:
+        schema=config["SCHEMA"],
+        tsv_file=config["PRESCORING_FILTERED_OUTPUT"]  # Always use filtered output (either filtered or copied)
+    output: config["DB_FILE"]
+    params: log_level=config['LOG_LEVEL']
+    log: "logs/create_load_db.log"
+    conda: "envs/create_load_db.yaml"
+    shell:
+        "perl workflow/scripts/load_bcdm.pl \
+            --tsv {input.tsv_file} \
+            --db {output} \
+            --sql {input.schema} \
+            --log {params.log_level} \
+            --force 2> {log}"
 
 # Rule to load criteria
 rule load_criteria:
