@@ -1,0 +1,24 @@
+# North American Countries - ISO 3166-1 Alpha-2 Codes
+AG;Antigua and Barbuda
+BB;Barbados
+BZ;Belize
+BS;Bahamas
+CA;Canada
+CR;Costa Rica
+CU;Cuba
+DM;Dominica
+DO;Dominican Republic
+GD;Grenada
+GT;Guatemala
+HN;Honduras
+HT;Haiti
+JM;Jamaica
+KN;Saint Kitts and Nevis
+LC;Saint Lucia
+MX;Mexico
+NI;Nicaragua
+PA;Panama
+SV;El Salvador
+TT;Trinidad and Tobago
+US;United States;USA;United States of America
+VC;Saint Vincent and the Grenadines

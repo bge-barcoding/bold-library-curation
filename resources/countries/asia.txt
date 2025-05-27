@@ -1,0 +1,46 @@
+# Asian Countries - ISO 3166-1 Alpha-2 Codes
+AF;Afghanistan
+BD;Bangladesh
+BH;Bahrain
+BN;Brunei
+BT;Bhutan
+CN;China
+HK;Hong Kong
+ID;Indonesia
+IL;Israel
+IN;India
+IQ;Iraq
+IR;Iran
+JO;Jordan
+JP;Japan
+KG;Kyrgyzstan
+KH;Cambodia
+KP;North Korea
+KR;South Korea;Korea
+KW;Kuwait
+KZ;Kazakhstan
+LA;Laos
+LB;Lebanon
+LK;Sri Lanka
+MM;Myanmar;Burma
+MN;Mongolia
+MO;Macao
+MV;Maldives
+MY;Malaysia
+NP;Nepal
+OM;Oman
+PH;Philippines
+PK;Pakistan
+PS;Palestine
+QA;Qatar
+SA;Saudi Arabia
+SG;Singapore
+SY;Syria
+TH;Thailand
+TJ;Tajikistan
+TL;Timor-Leste;East Timor
+TM;Turkmenistan
+TW;Taiwan
+UZ;Uzbekistan
+VN;Vietnam
+YE;Yemen

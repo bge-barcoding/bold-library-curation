@@ -1,0 +1,9 @@
+# Arctic Region Countries - ISO 3166-1 Alpha-2 Codes
+CA;Canada
+DK;Denmark;Greenland
+FI;Finland
+IS;Iceland
+NO;Norway;Svalbard
+RU;Russia;Russian Federation
+SE;Sweden
+US;United States;USA;Alaska

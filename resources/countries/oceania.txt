@@ -1,0 +1,26 @@
+# Oceania Countries - ISO 3166-1 Alpha-2 Codes
+AS;American Samoa
+AU;Australia
+CK;Cook Islands
+FJ;Fiji
+FM;Micronesia
+GU;Guam
+KI;Kiribati
+MH;Marshall Islands
+MP;Northern Mariana Islands
+NC;New Caledonia
+NF;Norfolk Island
+NR;Nauru
+NU;Niue
+NZ;New Zealand
+PF;French Polynesia
+PG;Papua New Guinea
+PN;Pitcairn Islands
+PW;Palau
+SB;Solomon Islands
+TK;Tokelau
+TO;Tonga
+TV;Tuvalu
+VU;Vanuatu
+WF;Wallis and Futuna
+WS;Samoa

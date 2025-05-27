@@ -1,0 +1,15 @@
+# South American Countries - ISO 3166-1 Alpha-2 Codes
+AR;Argentina
+BO;Bolivia
+BR;Brazil
+CL;Chile
+CO;Colombia
+EC;Ecuador
+FK;Falkland Islands
+GF;French Guiana
+GY;Guyana
+PE;Peru
+PY;Paraguay
+SR;Suriname
+UY;Uruguay
+VE;Venezuela

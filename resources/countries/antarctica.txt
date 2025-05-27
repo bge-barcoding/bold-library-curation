@@ -1,0 +1,6 @@
+# Antarctica - ISO 3166-1 Alpha-2 Codes
+AQ;Antarctica
+BV;Bouvet Island
+GS;South Georgia and the South Sandwich Islands
+HM;Heard Island and McDonald Islands
+TF;French Southern Territories

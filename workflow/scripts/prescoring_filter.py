@@ -66,10 +66,10 @@ def load_taxa_list(file_path: str) -> Set[str]:
 
 def load_country_list(file_path: str) -> Set[str]:
     """
-    Load country codes from country list file.
+    Load country codes from country list file (semicolon separated format).
     
     Args:
-        file_path: Path to country list file (CSV format)
+        file_path: Path to country list file (semicolon-separated format like taxa)
         
     Returns:
         Set of country codes (uppercased)
@@ -78,21 +78,18 @@ def load_country_list(file_path: str) -> Set[str]:
     
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
-            # Try to detect if it has headers
-            first_line = f.readline().strip()
-            f.seek(0)
-            
-            reader = csv.reader(f)
-            for line_num, row in enumerate(reader, 1):
-                if not row:
+            for line_num, line in enumerate(f, 1):
+                line = line.strip()
+                if not line:
                     continue
                     
-                # Take first column as country code
-                country_code = row[0].strip().upper()
-                if country_code:
-                    country_set.add(country_code)
+                # Split by semicolon and add all variants (ISO code + country names)
+                country_variants = [c.strip() for c in line.split(';')]
+                for country in country_variants:
+                    if country:  # Skip empty strings
+                        country_set.add(country.upper())
         
-        logging.info(f"Loaded {len(country_set)} country codes from {file_path}")
+        logging.info(f"Loaded {len(country_set)} unique country codes/names from {file_path}")
         return country_set
         
     except FileNotFoundError:
@@ -432,11 +429,11 @@ Examples:
   python prescoring_filter.py --input data.tsv --output filtered.tsv --taxa-list species.csv
   
   # Filter by country list only  
-  python prescoring_filter.py --input data.tsv --output filtered.tsv --country-list countries.csv
+  python prescoring_filter.py --input data.tsv --output filtered.tsv --country-list countries.txt
   
   # Combined filtering with BIN sharing
   python prescoring_filter.py --input data.tsv --output filtered.tsv \\
-    --taxa-list species.csv --country-list countries.csv --enable-bin-sharing
+    --taxa-list species.csv --country-list countries.txt --enable-bin-sharing
         """
     )
     
@@ -447,7 +444,7 @@ Examples:
     parser.add_argument('--taxa-list',
                         help='Taxa list file path (semicolon-separated format)')
     parser.add_argument('--country-list',
-                        help='Country list file path (CSV format)')
+                        help='Country list file path (semicolon-separated format like taxa)')
     parser.add_argument('--enable-bin-sharing', action='store_true',
                         help='Include BIN_URI sharing expansion')
     parser.add_argument('--log-level', default='INFO',
