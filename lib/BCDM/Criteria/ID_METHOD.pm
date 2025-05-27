@@ -104,24 +104,24 @@ sub _assess {
     }
     
     # Determine score based on pattern combinations:
-    # 0 = no match
-    # 1 = negative match only
-    # 2 = positive and negative match
-    # 3 = positive match only
+    # 0 = negative match only (worst option!)
+    # 1 = positive and negative match (still bad!)
+    # 2 = no match (not bad or good)
+	# 3 = positive match only (best option!)
     my $retval;
     my $notes;
     
     if (!$has_positive && !$has_negative) {
         # No matches found at all
-        $retval = 0;
+        $retval = 2;
         $notes = "No identification method indicators found";
     } elsif (!$has_positive && $has_negative) {
         # Negative matches only - molecular/automated identification
-        $retval = 1;
+        $retval = 0;
         $notes = "Molecular/automated identification indicators only";
     } elsif ($has_positive && $has_negative) {
         # Both positive and negative matches - mixed methods
-        $retval = 2;
+        $retval = 1;
         $notes = "Mixed identification methods detected (both morphological and molecular indicators)";
     } else {
         # Positive matches only - pure morphological identification
