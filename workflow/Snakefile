@@ -24,44 +24,30 @@ rule prescoring_filter:
         enable_filter=config.get("ENABLE_PRESCORING_FILTER", False)
     log: "logs/prescoring_filter.log"
     conda: "envs/prescoring_filter.yaml" if config.get("ENABLE_PRESCORING_FILTER", False) else None
-    run:
-        import os
-        import subprocess
-        
+    shell:
+        """
         # Ensure output directory exists
-        output_dir = os.path.dirname(output.filtered_file)
-        if output_dir:
-            os.makedirs(output_dir, exist_ok=True)
+        mkdir -p $(dirname {output.filtered_file})
         
-        if params.enable_filter:
+        if [ "{params.enable_filter}" = "True" ]; then
             # Run the filtering script
-            cmd = [
-                "python", "workflow/scripts/prescoring_filter.py",
-                "--input", input.bold_tsv,
-                "--output", output.filtered_file,
-                "--log-level", params.log_level
-            ]
-            
-            # Add optional arguments
-            if params.taxa_arg:
-                cmd.extend(params.taxa_arg.split())
-            if params.country_arg:
-                cmd.extend(params.country_arg.split())
-            if params.bin_arg:
-                cmd.append(params.bin_arg)
-            
-            with open(log[0], 'w') as logfile:
-                subprocess.run(cmd, stderr=logfile, check=True)
-        else:
+            python workflow/scripts/prescoring_filter.py \
+                --input {input.bold_tsv} \
+                --output {output.filtered_file} \
+                --log-level {params.log_level} \
+                {params.taxa_arg} \
+                {params.country_arg} \
+                {params.bin_arg} \
+                2> {log}
+        else
             # Just copy the original file
-            import shutil
-            shutil.copy2(input.bold_tsv, output.filtered_file)
-            with open(log[0], 'w') as logfile:
-                logfile.write("Filtering disabled - copied original file\n")
+            cp {input.bold_tsv} {output.filtered_file}
+            echo "Filtering disabled - copied original file" > {log}
+        fi
         
         # Create completion marker
-        with open(output.marker, 'w') as f:
-            f.write("Prescoring filter completed\n")
+        echo "Prescoring filter completed" > {output.marker}
+        """
 
 # Final rule that brings it all together
 rule all:
