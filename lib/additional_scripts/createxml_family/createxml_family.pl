@@ -16,17 +16,18 @@ GetOptions(
 
 # Check if required args are present
 die "Input file is not defined. Use --in=FILENAME\n" unless defined $filename;
-die "Subfamily is not defined. Use --sub=SUBFAMILY\n" unless defined $subfamily;
+#die "Subfamily is not defined. Use --sub=SUBFAMILY\n" unless defined $subfamily; 
 
+goto SKIP unless defined $subfamily;
 my@subfamily=split(",",$subfamily);
 my%subfam;
 foreach(@subfamily){
 	$subfam{$_}=1;
 }
-
+SKIP:
 
 #my$filename=$ARGV[0];
-my@blacklist=("nuc","elev_accuracy","primers_forward","primers_reverse");
+my@blacklist=("SPECIES_ID","TYPE_SPECIMEN","SEQ_QUALITY","HAS_IMAGE","COLLECTORS","COLLECTION_DATE","COUNTRY","REGION","SECTOR","SITE","COORD","IDENTIFIER","ID_METHOD","INSTITUTION","PUBLIC_VOUCHER","MUSEUM_ID","nuc","elev_accuracy","primers_forward","primers_reverse");
 my%notthisone;
 my$name;
 my%avail;
@@ -44,7 +45,7 @@ while(<DAT>){
 }
 
 print $filename;
-
+print "next step\n";
 if($filename=~/^(.*)\.\w+/){
 	$name=$1;
 }
@@ -123,7 +124,7 @@ while(my $line = <$fh> ) {
 	$header[96]="nothing";	
 	#print $line;
 	print OUT "	<record>\n";
-	print OUT "		<Keep>0</Keep>\n";
+	#print OUT "		<Keep>0</Keep>\n";
 
 	my$length=@collumns;
 	
@@ -138,15 +139,13 @@ while(my $line = <$fh> ) {
 		if ($var eq 'bold_recordset_code_arr') {
 	        $var = 'recordset_code_arr';
 	    }
-	    if ($var eq 'COLLECTORS') {
-	        $var = 'HAS_COLLECTOR';
-	    }
-		if($header[$count_header] eq "country\/ocean") {
+	    if($header[$count_header] eq "country\/ocean") {
 			$var ="country_ocean";
 		}
 		if($header[$count_header] eq "province\/state") {
 			$var ="province_state";
-		}		
+		}
+
 		if($value=~/^(.*)&(.*)$/) {
 			$value="$1 et $2";
 			$value =~ s/&/and\;/g;
@@ -160,7 +159,6 @@ while(my $line = <$fh> ) {
 		print OUT "		<$var>$value<\/$var>\n" if defined $var;
 		}
 		$count_header++;
-
 	}
 
 	#print OUT "		<additionalStatus><\/additionalStatus>\n";
