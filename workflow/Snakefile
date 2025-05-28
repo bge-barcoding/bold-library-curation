@@ -1,5 +1,13 @@
-# Read configuration file 
+# Read configuration file
 configfile: "config/config.yml"
+
+# Helper function to get the appropriate input file based on filtering configuration
+def get_input_file():
+    """Return the appropriate input file based on whether filtering is enabled"""
+    if config.get("ENABLE_PRESCORING_FILTER", False):
+        return config["PRESCORING_FILTERED_OUTPUT"]
+    else:
+        return config["BOLD_TSV"]
 
 # Helper function to determine the appropriate dependency for criteria assessment
 def get_taxonomy_dependency():
@@ -10,26 +18,25 @@ def get_taxonomy_dependency():
         return "results/taxonomy_loaded.ok"
 
 # Rule for pre-scoring filter (conditional execution)
-rule prescoring_filter:
-    input:
-        bold_tsv=config["BOLD_TSV"]
-    output:
-        filtered_file=config["PRESCORING_FILTERED_OUTPUT"],
-        marker="results/prescoring_filter.ok"
-    params:
-        taxa_arg=lambda wildcards: f"--taxa-list {config['FILTER_TAXA_LIST']}" if config.get("FILTER_TAXA", False) and config.get("FILTER_TAXA_LIST") else "",
-        country_arg=lambda wildcards: f"--country-list {config['FILTER_COUNTRY_LIST']}" if config.get("FILTER_COUNTRIES", False) and config.get("FILTER_COUNTRY_LIST") else "",
-        bin_arg="--enable-bin-sharing" if config.get("FILTER_BINS", False) else "",
-        log_level=config['LOG_LEVEL'],
-        enable_filter=config.get("ENABLE_PRESCORING_FILTER", False)
-    log: "logs/prescoring_filter.log"
-    conda: "envs/prescoring_filter.yaml" if config.get("ENABLE_PRESCORING_FILTER", False) else None
-    shell:
-        """
-        # Ensure output directory exists
-        mkdir -p $(dirname {output.filtered_file})
-        
-        if [ "{params.enable_filter}" = "True" ]; then
+if config.get("ENABLE_PRESCORING_FILTER", False):
+    rule prescoring_filter:
+        input:
+            bold_tsv=config["BOLD_TSV"]
+        output:
+            filtered_file=config["PRESCORING_FILTERED_OUTPUT"],
+            marker="results/prescoring_filter.ok"
+        params:
+            taxa_arg=lambda wildcards: f"--taxa-list {config['FILTER_TAXA_LIST']}" if config.get("FILTER_TAXA", False) and config.get("FILTER_TAXA_LIST") else "",
+            country_arg=lambda wildcards: f"--country-list {config['FILTER_COUNTRY_LIST']}" if config.get("FILTER_COUNTRIES", False) and config.get("FILTER_COUNTRY_LIST") else "",
+            bin_arg="--enable-bin-sharing" if config.get("FILTER_BINS", False) else "",
+            log_level=config['LOG_LEVEL']
+        log: "logs/prescoring_filter.log"
+        conda: "envs/prescoring_filter.yaml"
+        shell:
+            """
+            # Ensure output directory exists
+            mkdir -p $(dirname {output.filtered_file})
+            
             # Run the filtering script
             python workflow/scripts/prescoring_filter.py \
                 --input {input.bold_tsv} \
@@ -39,15 +46,19 @@ rule prescoring_filter:
                 {params.country_arg} \
                 {params.bin_arg} \
                 2> {log}
-        else
-            # Just copy the original file
-            cp {input.bold_tsv} {output.filtered_file}
-            echo "Filtering disabled - copied original file" > {log}
-        fi
-        
-        # Create completion marker
-        echo "Prescoring filter completed" > {output.marker}
-        """
+            
+            # Create completion marker
+            echo "Prescoring filter completed" > {output.marker}
+            """
+else:
+    # Create a dummy rule when filtering is disabled
+    rule skip_prescoring_filter:
+        output:
+            marker="results/prescoring_filter.ok"
+        shell:
+            """
+            echo "Prescoring filter disabled - using original file" > {output.marker}
+            """
 
 # Final rule that brings it all together
 rule all:
@@ -66,7 +77,7 @@ rule clean:
 rule create_load_db:
     input:
         schema=config["SCHEMA"],
-        tsv_file=config["PRESCORING_FILTERED_OUTPUT"],  # Always use filtered output (either filtered or copied)
+        tsv_file=get_input_file(),  # Use dynamic input function
         prescoring_ok="results/prescoring_filter.ok"  # Explicit dependency
     output: config["DB_FILE"]
     params: log_level=config['LOG_LEVEL']
