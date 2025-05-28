@@ -6,6 +6,9 @@ This Snakemake workflow processes BOLD records to assess and filter specimens ba
 
 The pipeline follows a systematic approach to evaluate BOLD specimens across 16 different quality criteria, producing a ranked output of specimens suitable for subsequent manual library curation. The workflow includes optional pre-filtering capabilities to reduce dataset size before detailed assessment.
 
+![BOLD Pipeline DAG](docs/pipeline_dag.svg)
+
+
 ## Workflow Steps
 
 ### 1. Pre-scoring Filter (Optional)
