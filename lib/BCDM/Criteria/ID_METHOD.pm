@@ -104,28 +104,27 @@ sub _assess {
     }
     
     # Determine score based on pattern combinations:
-    # 0 = negative match only (worst option!)
-    # 1 = positive and negative match (still bad!)
-    # 2 = no match (not bad or good)
-	# 3 = positive match only (best option!)
+    # Database constraint requires status IN (0, 1), so we use boolean logic:
+    # 0 = fail (any case that isn't pure morphological identification)
+    # 1 = pass (only pure morphological identification indicators found)
     my $retval;
     my $notes;
     
     if (!$has_positive && !$has_negative) {
-        # No matches found at all
-        $retval = 2;
-        $notes = "No identification method indicators found";
+        # No matches found at all - pass
+        $retval = 1;
+        $notes = "No negative identification method indicators found";
     } elsif (!$has_positive && $has_negative) {
-        # Negative matches only - molecular/automated identification
+        # Negative matches only - molecular/automated identification - fail
         $retval = 0;
         $notes = "Molecular/automated identification indicators only";
     } elsif ($has_positive && $has_negative) {
-        # Both positive and negative matches - mixed methods
-        $retval = 1;
+        # Both positive and negative matches - mixed methods - fail
+        $retval = 0;
         $notes = "Mixed identification methods detected (both morphological and molecular indicators)";
     } else {
-        # Positive matches only - pure morphological identification
-        $retval = 3;
+        # Positive matches only - pure morphological identification - pass
+        $retval = 1;
         $notes = "Pure morphological identification indicators found";
     }
     
