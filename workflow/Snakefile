@@ -1,4 +1,4 @@
-# Read configuration file
+# Read configuration file 
 configfile: "config/config.yml"
 
 # Helper function to determine the appropriate dependency for criteria assessment
