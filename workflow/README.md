@@ -4,37 +4,54 @@ This Snakemake workflow processes BOLD records to assess and filter specimens ba
 
 ## Pipeline Overview
 
-The pipeline follows a systematic approach to evaluate BOLD specimens across 16 different quality criteria, producing a ranked output of specimens suitable for subsequent manual library curation.
+The pipeline follows a systematic approach to evaluate BOLD specimens across 16 different quality criteria, producing a ranked output of specimens suitable for subsequent manual library curation. The workflow includes optional pre-filtering capabilities to reduce dataset size before detailed assessment.
 
 ## Workflow Steps
 
-### 1. Database Creation and Initial Data Loading
+### 1. Pre-scoring Filter (Optional)
+**Rule:** `prescoring_filter`
+- **Optional step**: Filters the input BOLD dataset before detailed processing
+- Can filter by taxa, countries, and/or BIN sharing criteria
+- **When enabled**: Creates filtered dataset for downstream processing
+- **When disabled**: Simply copies original dataset (no filtering applied)
+- **Configuration**: Controlled by `ENABLE_PRESCORING_FILTER` in config
+- **Input:** Original BOLD TSV file
+- **Output:** Filtered BOLD TSV file (or copy of original)
+- **Script:** `workflow/scripts/prescoring_filter.py`
+
+**Available Filtering Options:**
+- **Taxa filtering**: Filter by specific taxonomic groups (`FILTER_TAXA: true`, `FILTER_TAXA_LIST`)
+- **Country filtering**: Filter by countries of collection (`FILTER_COUNTRIES: true`, `FILTER_COUNTRY_LIST`)
+- **BIN sharing**: Enable BIN sharing analysis (`FILTER_BINS: true`)
+
+### 2. Database Creation and Initial Data Loading
 **Rule:** `create_load_db`
-- Creates SQLite database from BOLD TSV data
+- Creates SQLite database from processed BOLD TSV data (filtered or original)
 - Loads the Barcode Core Data Model (BCDM) schema
-- **Input:** BOLD TSV file, database schema
+- **Input:** Processed BOLD TSV file (from prescoring filter), database schema
 - **Output:** SQLite database file
 - **Script:** `workflow/scripts/load_bcdm.pl`
+- **Dependency:** Requires prescoring filter completion
 
-### 2. Criteria Configuration Loading
+### 3. Criteria Configuration Loading
 **Rule:** `load_criteria`
 - Imports assessment criteria definitions into the database
 - **Input:** `resources/criteria.tsv`
 - **Output:** Database with criteria table loaded
 
-### 3. Database Indexing
+### 4. Database Indexing
 **Rule:** `apply_indexes`
 - Applies database indexes for improved query performance
 - **Input:** Index definitions SQL file
 - **Output:** Indexed database file
 
-### 4. Taxonomy Loading
+### 5. Taxonomy Loading
 **Rule:** `load_taxonomy`
 - Loads taxonomic information into the database
 - Enriches specimen records with taxonomic hierarchy
 - **Script:** `workflow/scripts/load_taxonomy.pl`
 
-### 4.5. Target List Import (Optional)
+### 6. Target List Import (Optional)
 **Rules:** `import_target_list` or `skip_target_list`
 - **Conditional step**: Only runs if `USE_TARGET_LIST: true` in config
 - When enabled: Filters specimens to only target species from provided list
@@ -43,7 +60,7 @@ The pipeline follows a systematic approach to evaluate BOLD specimens across 16 
 - **Script:** `workflow/scripts/load_targetlist.pl`
 - **Purpose:** Allows focused curation on specific species of interest
 
-### 5. Quality Criteria Assessment
+### 7. Quality Criteria Assessment
 The pipeline evaluates specimens against 16 different quality criteria. Each criterion is assessed independently:
 
 #### Specimen Metadata Criteria
@@ -76,19 +93,19 @@ Each assessment rule:
 - **Script:** `workflow/scripts/assess_criteria.pl` (except HAS_IMAGE uses `assess_images.pl`)
 - **Dependency:** Uses `get_taxonomy_dependency()` function to determine if specimens should be assessed after taxonomy loading alone or after target list filtering
 
-### 6. Results Consolidation
+### 8. Results Consolidation
 **Rule:** `concatenate`
 - Combines all individual criterion assessment results
 - **Input:** All 16 criterion TSV files
 - **Output:** `results/CONCATENATED.tsv`
 - **Script:** `workflow/scripts/concat_tsvs.pl`
 
-### 7. Results Import
+### 9. Results Import
 **Rule:** `import_concatenated`
 - Imports consolidated results back into the database
 - Creates `bold_criteria` table with all assessments
 
-### 8. Final Output Generation
+### 10. Final Output Generation
 **Rule:** `output_filtered_data`
 - Applies ranking algorithm to prioritize specimens
 - Generates final filtered and ranked specimen list
@@ -98,10 +115,28 @@ Each assessment rule:
 ## Configuration
 
 The pipeline is configured through `config/config.yml` which defines:
+
+### Core Configuration
 - Input file paths (BOLD TSV, schema, indexes)
 - Database file locations
-- Logging levels
-- Library paths
+- Logging levels (`LOG_LEVEL`)
+- Library paths (`LIBS`)
+
+### Pre-scoring Filter Configuration
+- `ENABLE_PRESCORING_FILTER`: Enable/disable pre-filtering (default: false)
+- `PRESCORING_FILTERED_OUTPUT`: Output path for filtered data
+- `FILTER_TAXA`: Enable taxonomic filtering (requires `FILTER_TAXA_LIST`)
+- `FILTER_TAXA_LIST`: Path to taxa list file
+- `FILTER_COUNTRIES`: Enable country filtering (requires `FILTER_COUNTRY_LIST`)
+- `FILTER_COUNTRY_LIST`: Path to countries list file
+- `FILTER_BINS`: Enable BIN sharing analysis
+
+### Target List Configuration
+- `USE_TARGET_LIST`: Enable/disable target species filtering
+- `TARGET_LIST`: Path to target species CSV file
+- `PROJECT_NAME`: Project identifier for target list
+- `TAXON_LEVEL`: Taxonomic level for target matching
+- `KINGDOM`: Kingdom scope for target filtering
 
 ## Environment Requirements
 
@@ -111,37 +146,66 @@ The pipeline uses conda environments for different steps:
 - `load_taxonomy.yaml`: Taxonomy processing
 - `assess_criteria.yaml`: Criteria assessment
 - `assess_images.yaml`: Image assessment
+- `prescoring_filter.yaml`: Pre-filtering operations (when enabled)
 
 ## Usage
 
-Run the complete pipeline (without target list):
+### Basic Usage
+Run the complete pipeline without pre-filtering or target lists:
 ```bash
 snakemake --cores [number_of_cores] --use-conda
 ```
 
-Run with target list filtering enabled:
+### With Pre-scoring Filter
+```bash
+# First, enable prescoring filter in config/config.yml:
+# ENABLE_PRESCORING_FILTER: true
+# Configure desired filtering options (taxa, countries, bins)
+snakemake --cores [number_of_cores] --use-conda
+```
+
+### With Target List Filtering
 ```bash
 # First, set USE_TARGET_LIST: true in config/config.yml
+# Ensure TARGET_LIST path is specified
 snakemake --cores [number_of_cores] --use-conda
 ```
 
-Clean intermediate files:
+### Combined Pre-filtering and Target Lists
+```bash
+# Enable both in config/config.yml:
+# ENABLE_PRESCORING_FILTER: true
+# USE_TARGET_LIST: true
+# Configure all relevant filtering parameters
+snakemake --cores [number_of_cores] --use-conda
+```
+
+### Clean Intermediate Files
 ```bash
 snakemake clean
 ```
 
-## Target List Functionality
+## Filtering Strategy
 
-The pipeline can optionally filter specimens to only those matching a target species list:
+The pipeline offers two complementary filtering approaches:
 
-**To enable target list filtering:**
-1. Set `USE_TARGET_LIST: true` in `config/config.yml`
-2. Ensure your target species CSV file is specified in `TARGET_LIST`
-3. Run the pipeline normally
+### 1. Pre-scoring Filter (Early Stage)
+- **Purpose:** Reduce dataset size early in the pipeline for efficiency
+- **When to use:** Large datasets that need broad filtering before detailed processing
+- **Filters by:** Taxa, geography, BIN characteristics
+- **Advantage:** Reduces computational load for all downstream steps
 
-**Behavior differences:**
-- **Without target list** (`USE_TARGET_LIST: false`): Processes all specimens in BOLD dataset
-- **With target list** (`USE_TARGET_LIST: true`): Only processes specimens matching target species, making the pipeline more efficient for focused curation projects
+### 2. Target List Filter (Post-taxonomy)
+- **Purpose:** Focus curation on specific species of interest
+- **When to use:** Project-specific curation targeting known species lists
+- **Filters by:** Species matches against provided target list
+- **Advantage:** Precise species-level targeting after full taxonomic processing
+
+### Combined Strategy
+Both filters can be used together for maximum efficiency:
+1. Pre-scoring filter reduces initial dataset size
+2. Target list filter provides species-specific focus
+3. Result: Highly focused dataset optimized for targeted curation projects
 
 ## Output
 
@@ -149,4 +213,18 @@ The final output (`results/result_output.tsv`) contains filtered and ranked BOLD
 
 ## Logging
 
-All major steps generate log files in the `logs/` directory for troubleshooting and monitoring pipeline execution.
+All major steps generate log files in the `logs/` directory for troubleshooting and monitoring pipeline execution. Key log files include:
+- `prescoring_filter.log`: Pre-filtering operations
+- `create_load_db.log`: Database creation and loading
+- `load_taxonomy.log`: Taxonomy processing
+- `load_target_list.log`: Target list processing (when enabled)
+- Individual assessment logs for each criterion
+- `output_filtered_data.log`: Final output generation
+
+## Pipeline Dependencies
+
+The workflow uses a smart dependency system that adapts based on configuration:
+- **Without target list:** Assessment steps depend on `taxonomy_loaded.ok`
+- **With target list:** Assessment steps depend on `target_loaded.ok`
+- **Pre-scoring filter:** Always runs before database creation when enabled
+- **Helper function:** `get_taxonomy_dependency()` automatically determines appropriate dependencies
