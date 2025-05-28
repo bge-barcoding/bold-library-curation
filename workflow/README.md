@@ -9,15 +9,16 @@ The pipeline follows a systematic approach to evaluate BOLD specimens across 16 
 ## Workflow Steps
 
 ### 1. Pre-scoring Filter (Optional)
-**Rule:** `prescoring_filter`
+**Rules:** `prescoring_filter` or `skip_prescoring_filter`
 - **Optional step**: Filters the input BOLD dataset before detailed processing
 - Can filter by taxa, countries, and/or BIN sharing criteria
-- **When enabled**: Creates filtered dataset for downstream processing
-- **When disabled**: Simply copies original dataset (no filtering applied)
+- **When enabled** (`ENABLE_PRESCORING_FILTER: true`): Runs filtering script to create filtered dataset
+- **When disabled** (`ENABLE_PRESCORING_FILTER: false`): Skips filtering entirely - downstream steps use original file directly
+- **Optimization**: No file copying when filtering is disabled, improving efficiency
 - **Configuration**: Controlled by `ENABLE_PRESCORING_FILTER` in config
-- **Input:** Original BOLD TSV file
-- **Output:** Filtered BOLD TSV file (or copy of original)
-- **Script:** `workflow/scripts/prescoring_filter.py`
+- **Input:** Original BOLD TSV file (when filtering enabled)
+- **Output:** Filtered BOLD TSV file (when filtering enabled) or marker file only (when disabled)
+- **Script:** `workflow/scripts/prescoring_filter.py` (when enabled)
 
 **Available Filtering Options:**
 - **Taxa filtering**: Filter by specific taxonomic groups (`FILTER_TAXA: true`, `FILTER_TAXA_LIST`)
@@ -26,12 +27,13 @@ The pipeline follows a systematic approach to evaluate BOLD specimens across 16 
 
 ### 2. Database Creation and Initial Data Loading
 **Rule:** `create_load_db`
-- Creates SQLite database from processed BOLD TSV data (filtered or original)
+- Creates SQLite database from BOLD TSV data
+- Uses dynamic input selection: filtered file (when filtering enabled) or original file (when filtering disabled)
 - Loads the Barcode Core Data Model (BCDM) schema
-- **Input:** Processed BOLD TSV file (from prescoring filter), database schema
+- **Input:** BOLD TSV file (selected automatically based on filtering configuration), database schema
 - **Output:** SQLite database file
 - **Script:** `workflow/scripts/load_bcdm.pl`
-- **Dependency:** Requires prescoring filter completion
+- **Dependency:** Requires prescoring filter step completion (marker file)
 
 ### 3. Criteria Configuration Loading
 **Rule:** `load_criteria`
@@ -124,7 +126,9 @@ The pipeline is configured through `config/config.yml` which defines:
 
 ### Pre-scoring Filter Configuration
 - `ENABLE_PRESCORING_FILTER`: Enable/disable pre-filtering (default: false)
-- `PRESCORING_FILTERED_OUTPUT`: Output path for filtered data
+  - **When true**: Runs filtering script to create filtered dataset
+  - **When false**: Skips filtering entirely, uses original file directly (no file copying)
+- `PRESCORING_FILTERED_OUTPUT`: Output path for filtered data (only used when filtering enabled)
 - `FILTER_TAXA`: Enable taxonomic filtering (requires `FILTER_TAXA_LIST`)
 - `FILTER_TAXA_LIST`: Path to taxa list file
 - `FILTER_COUNTRIES`: Enable country filtering (requires `FILTER_COUNTRY_LIST`)
@@ -150,13 +154,15 @@ The pipeline uses conda environments for different steps:
 
 ## Usage
 
-### Basic Usage
-Run the complete pipeline without pre-filtering or target lists:
+### Basic Usage (No Pre-filtering)
+Run the complete pipeline without pre-filtering or target lists (most efficient for small-medium datasets):
 ```bash
 snakemake --cores [number_of_cores] --use-conda
 ```
+This configuration uses the original BOLD TSV file directly without any file copying or filtering overhead.
 
 ### With Pre-scoring Filter
+Enable pre-filtering for large datasets that benefit from early-stage reduction:
 ```bash
 # First, enable prescoring filter in config/config.yml:
 # ENABLE_PRESCORING_FILTER: true
@@ -187,19 +193,27 @@ snakemake clean
 
 ## Filtering Strategy
 
-The pipeline offers two complementary filtering approaches:
+The pipeline offers two complementary filtering approaches with intelligent resource optimization:
 
 ### 1. Pre-scoring Filter (Early Stage)
 - **Purpose:** Reduce dataset size early in the pipeline for efficiency
 - **When to use:** Large datasets that need broad filtering before detailed processing
 - **Filters by:** Taxa, geography, BIN characteristics
 - **Advantage:** Reduces computational load for all downstream steps
+- **Optimization:** When disabled, no file operations occur - original file is used directly
 
 ### 2. Target List Filter (Post-taxonomy)
 - **Purpose:** Focus curation on specific species of interest
 - **When to use:** Project-specific curation targeting known species lists
 - **Filters by:** Species matches against provided target list
 - **Advantage:** Precise species-level targeting after full taxonomic processing
+
+### Resource Optimization
+The pipeline automatically optimizes resource usage based on configuration:
+- **No filtering**: Direct use of original file, no copying overhead
+- **Pre-filtering only**: Creates filtered dataset, downstream steps use filtered file
+- **Target filtering only**: All specimens processed, then filtered to target species
+- **Combined filtering**: Maximum efficiency for focused curation projects
 
 ### Combined Strategy
 Both filters can be used together for maximum efficiency:
@@ -226,5 +240,17 @@ All major steps generate log files in the `logs/` directory for troubleshooting 
 The workflow uses a smart dependency system that adapts based on configuration:
 - **Without target list:** Assessment steps depend on `taxonomy_loaded.ok`
 - **With target list:** Assessment steps depend on `target_loaded.ok`
-- **Pre-scoring filter:** Always runs before database creation when enabled
-- **Helper function:** `get_taxonomy_dependency()` automatically determines appropriate dependencies
+- **Pre-scoring filter enabled:** Filtering rule runs before database creation
+- **Pre-scoring filter disabled:** Skip rule creates marker only, database uses original file directly
+- **Helper functions:**
+  - `get_taxonomy_dependency()`: Automatically determines assessment dependencies
+  - `get_input_file()`: Automatically selects appropriate input file (original or filtered)
+
+## Recent Optimizations
+
+### File Handling Efficiency (v2.0)
+The pipeline now intelligently handles file operations based on filtering configuration:
+- **When filtering disabled**: No file copying occurs, original file used directly
+- **When filtering enabled**: Filtered file created and used for downstream processing  
+- **Dynamic input selection**: Automatic selection of appropriate input file throughout pipeline
+- **Resource savings**: Eliminates unnecessary file operations for improved performance on HPC systems
