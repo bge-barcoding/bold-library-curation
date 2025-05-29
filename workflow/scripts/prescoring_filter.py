@@ -6,12 +6,15 @@ This script filters BOLD TSV data before database creation to reduce dataset siz
 and improve performance for small target lists.
 
 The filtering process:
-1. Finds records matching taxa and/or country criteria
+1. Finds records matching taxa, country, and/or marker criteria
 2. Optionally expands the dataset by including all records sharing BIN_URIs with the matched records
 3. Always preserves records that match the initial criteria, even if they lack BIN_URIs
 
-Records without BIN_URIs that match the taxa/country criteria are always kept - 
+Records without BIN_URIs that match the taxa/country/marker criteria are always kept - 
 the purpose of BIN expansion is to add additional related records, not to exclude existing ones.
+
+When multiple filters are used (taxa, countries, marker), the marker filter acts as an additional 
+constraint, keeping only records that match ALL specified criteria.
 """
 
 import argparse
@@ -170,6 +173,37 @@ def filter_by_countries(input_file: str, country_set: Set[str], country_column: 
     return matching_processids
 
 
+def filter_by_marker(input_file: str, marker_code: str, marker_column: str) -> Set[str]:
+    """
+    Return set of processids matching the specified marker code.
+    
+    Args:
+        input_file: Path to input TSV file
+        marker_code: Marker code to match (e.g., "COI-5P")
+        marker_column: Name of marker column
+        
+    Returns:
+        Set of processids that match the marker criteria
+    """
+    matching_processids = set()
+    
+    with open(input_file, 'r', encoding='utf-8') as f:
+        reader = csv.DictReader(f, delimiter='\t')
+        
+        for row_num, row in enumerate(reader, 1):
+            if row_num % 10000 == 0:
+                logging.info(f"Marker filtering: processed {row_num} rows")
+                
+            marker = row.get(marker_column, '').strip()
+            if marker and marker == marker_code:
+                processid = row.get('processid', '').strip()
+                if processid:
+                    matching_processids.add(processid)
+    
+    logging.info(f"Marker filter matched {len(matching_processids)} processids")
+    return matching_processids
+
+
 def get_bins_for_processids(processids: Set[str], input_file: str) -> Set[str]:
     """
     Extract BIN_URIs for given processids.
@@ -310,6 +344,12 @@ def detect_column_names(input_file: str) -> Dict[str, str]:
             column_map['bin'] = col
             break
     
+    # Marker column detection
+    for col in headers:
+        if col.lower() in ['marker_code', 'marker', 'gene']:
+            column_map['marker'] = col
+            break
+    
     logging.info(f"Detected columns: {column_map}")
     return column_map
 
@@ -319,6 +359,7 @@ def prescoring_filter(
     output_tsv: str,
     taxa_list: Optional[str] = None,
     country_list: Optional[str] = None,
+    marker_code: Optional[str] = None,
     enable_bin_sharing: bool = False
 ) -> Dict[str, Any]:
     """
@@ -329,6 +370,7 @@ def prescoring_filter(
         output_tsv: Path to output filtered TSV file
         taxa_list: Path to taxa list file (optional)
         country_list: Path to country list file (optional)
+        marker_code: Marker code to filter by (e.g., "COI-5P") (optional)
         enable_bin_sharing: Whether to include BIN_URI sharing expansion
         
     Returns:
@@ -340,8 +382,8 @@ def prescoring_filter(
     if not Path(input_tsv).exists():
         raise FileNotFoundError(f"Input file not found: {input_tsv}")
     
-    if not taxa_list and not country_list:
-        raise ValueError("At least one filter (taxa_list or country_list) must be provided")
+    if not taxa_list and not country_list and not marker_code:
+        raise ValueError("At least one filter (taxa_list, country_list, or marker_code) must be provided")
     
     # Auto-detect column names
     column_map = detect_column_names(input_tsv)
@@ -393,10 +435,30 @@ def prescoring_filter(
     elif enable_bin_sharing:
         logging.warning("BIN sharing requested but bin_uri column not found")
     
+    # Apply marker filter at the end - this removes records that don't match the specified marker
+    if marker_code and 'marker' in column_map:
+        marker_matches = filter_by_marker(input_tsv, marker_code, column_map['marker'])
+        if matching_processids:
+            # Intersect final results with marker filter
+            before_marker_count = len(matching_processids)
+            matching_processids = matching_processids.intersection(marker_matches)
+            logging.info(f"Marker filter: {before_marker_count} -> {len(matching_processids)} processids")
+        else:
+            # If no other filters, use marker filter as the only filter
+            matching_processids = marker_matches
+            logging.info(f"Using marker filter only: {len(matching_processids)} processids")
+    elif marker_code:
+        logging.warning("Marker code provided but marker column not found")
+    
     final_matches = len(matching_processids)
     
     # Write filtered output
     rows_written = 0
+    rows_skipped_no_processid = 0
+    rows_skipped_not_matching = 0
+    rows_skipped_wrong_marker = 0
+    unique_processids_written = set()
+    
     with open(input_tsv, 'r', encoding='utf-8') as infile, \
          open(output_tsv, 'w', encoding='utf-8', newline='') as outfile:
         
@@ -409,9 +471,34 @@ def prescoring_filter(
                 logging.info(f"Output writing: processed {row_num}/{total_rows} rows")
                 
             processid = row.get('processid', '').strip()
-            if processid in matching_processids:
-                writer.writerow(row)
-                rows_written += 1
+            if not processid:
+                rows_skipped_no_processid += 1
+                continue
+                
+            # Check if processid matches our filtering criteria
+            if processid not in matching_processids:
+                rows_skipped_not_matching += 1
+                continue
+            
+            # Additional marker check: if marker filtering is enabled, 
+            # check this specific record's marker, not just the processid
+            if marker_code and 'marker' in column_map:
+                record_marker = row.get(column_map['marker'], '').strip()
+                if record_marker != marker_code:
+                    rows_skipped_wrong_marker += 1
+                    continue
+            
+            # If we get here, the record passes all filters
+            writer.writerow(row)
+            rows_written += 1
+            unique_processids_written.add(processid)
+    
+    logging.info(f"Output summary: {rows_written} rows written, {rows_skipped_no_processid} rows skipped (no processid), {rows_skipped_not_matching} rows skipped (processid not matching), {rows_skipped_wrong_marker} rows skipped (wrong marker)")
+    logging.info(f"Unique processids written: {len(unique_processids_written)}")
+    
+    # Note about the counts
+    if marker_code:
+        logging.info(f"Note: When marker filtering is enabled, final processid count ({final_matches}) represents processids that have at least one record with the specified marker, but final row count ({rows_written}) represents only the actual records with that marker.")
     
     # Calculate statistics
     end_time = time.time()
@@ -429,6 +516,7 @@ def prescoring_filter(
         'processing_time_seconds': processing_time,
         'taxa_filter_used': bool(taxa_list),
         'country_filter_used': bool(country_list),
+        'marker_filter_used': bool(marker_code),
         'bin_sharing_used': enable_bin_sharing
     }
     
@@ -452,9 +540,12 @@ Examples:
   # Filter by country list only  
   python prescoring_filter.py --input data.tsv --output filtered.tsv --country-list countries.txt
   
+  # Filter by marker only
+  python prescoring_filter.py --input data.tsv --output filtered.tsv --marker COI-5P
+  
   # Combined filtering with BIN sharing
   python prescoring_filter.py --input data.tsv --output filtered.tsv \\
-    --taxa-list species.csv --country-list countries.txt --enable-bin-sharing
+    --taxa-list species.csv --country-list countries.txt --marker COI-5P --enable-bin-sharing
         """
     )
     
@@ -466,6 +557,8 @@ Examples:
                         help='Taxa list file path (semicolon-separated format)')
     parser.add_argument('--country-list',
                         help='Country list file path (semicolon-separated format like taxa)')
+    parser.add_argument('--marker',
+                        help='Marker code to filter by (e.g., COI-5P)')
     parser.add_argument('--enable-bin-sharing', action='store_true',
                         help='Include BIN_URI sharing expansion')
     parser.add_argument('--log-level', default='INFO',
@@ -484,6 +577,7 @@ Examples:
             output_tsv=args.output,
             taxa_list=args.taxa_list,
             country_list=args.country_list,
+            marker_code=args.marker,
             enable_bin_sharing=args.enable_bin_sharing
         )
         

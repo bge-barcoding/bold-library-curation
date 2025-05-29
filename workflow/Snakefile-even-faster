@@ -28,6 +28,7 @@ if config.get("ENABLE_PRESCORING_FILTER", False):
         params:
             taxa_arg=lambda wildcards: f"--taxa-list {config['FILTER_TAXA_LIST']}" if config.get("FILTER_TAXA", False) and config.get("FILTER_TAXA_LIST") else "",
             country_arg=lambda wildcards: f"--country-list {config['FILTER_COUNTRY_LIST']}" if config.get("FILTER_COUNTRIES", False) and config.get("FILTER_COUNTRY_LIST") else "",
+            marker_arg=lambda wildcards: f"--marker {config['MARKER']}" if config.get("MARKER") else "",
             bin_arg="--enable-bin-sharing" if config.get("FILTER_BINS", False) else "",
             log_level=config['LOG_LEVEL']
         log: "logs/prescoring_filter.log"
@@ -44,6 +45,7 @@ if config.get("ENABLE_PRESCORING_FILTER", False):
                 --log-level {params.log_level} \
                 {params.taxa_arg} \
                 {params.country_arg} \
+                {params.marker_arg} \
                 {params.bin_arg} \
                 2> {log}
             
