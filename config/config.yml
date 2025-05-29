@@ -5,6 +5,7 @@ SCHEMA: workflow/scripts/schema.sql
 INDEXES: workflow/scripts/indexes.sql
 LIBS: lib/
 PATH: lib/
+TAXONOMY_CHUNK_SIZE: 10000  # Adjust based on your system's memory
 TAXONOMY_LOADED: results/taxonomy_check.tsv
 CRITERIA: "COLLECTION_DATE COLLECTORS COORD COUNTRY REGION SECTOR HAS_IMAGE IDENTIFIER ID_METHOD INSTITUTION MUSEUM_ID PUBLIC_VOUCHER SEQ_QUALITY SITE SPECIES_ID TYPE_SPECIMEN"
 DB_FILE_INDEXED: results/bold_indexed.ok
