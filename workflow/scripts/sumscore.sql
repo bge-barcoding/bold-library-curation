@@ -1,6 +1,6 @@
 -- This script operates on the database assuming all criteria have been assessed
 -- and persisted into it. It calculates the sum of the status results for each
--- record, resulting in a `sumscore` column, whose values range from 0 to 14,
+-- record, resulting in a `sumscore` column, whose values range from 0 to 16,
 -- the latter being the number of pass/fail criteria that is assessed at time of
 -- writing. Subsequently, the next query partitions the records into the constituent
 -- bin_uri fields, sorts the records within each BIN by their sumscore in descending
