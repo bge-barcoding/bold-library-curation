@@ -595,7 +595,7 @@ IMPORT
 touch {output}
         """
 
-# Rule for outputting filtered data in BCDM        
+# Rule for outputting filtered data with ranking and sumscore        
 rule output_filtered_data:
     input:
         db=config["DB_FILE"],
@@ -610,7 +610,7 @@ rule output_filtered_data:
 .headers ON        
 .mode tabs
 .output {output}
-.read workflow/scripts/ranking.sql
+.read workflow/scripts/ranking_with_sumscore.sql
 .quit
 EOF
         """
