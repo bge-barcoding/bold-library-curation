@@ -135,9 +135,11 @@ def filter_by_taxa(input_file: str, taxa_set: Set[str], species_column: str) -> 
             if row_num % 10000 == 0:
                 logging.info(f"Taxa filtering: processed {row_num} rows")
                 
-            species = row.get(species_column, '').strip().lower()
+            species_raw = row.get(species_column, '') or ''
+            species = species_raw.strip().lower() if species_raw else ''
             if species and species in taxa_set:
-                processid = row.get('processid', '').strip()
+                processid_raw = row.get('processid', '') or ''
+                processid = processid_raw.strip() if processid_raw else ''
                 if processid:
                     matching_processids.add(processid)
     
@@ -166,9 +168,11 @@ def filter_by_countries(input_file: str, country_set: Set[str], country_column: 
             if row_num % 10000 == 0:
                 logging.info(f"Country filtering: processed {row_num} rows")
                 
-            country = row.get(country_column, '').strip().upper()
+            country_raw = row.get(country_column, '') or ''
+            country = country_raw.strip().upper() if country_raw else ''
             if country and country in country_set:
-                processid = row.get('processid', '').strip()
+                processid_raw = row.get('processid', '') or ''
+                processid = processid_raw.strip() if processid_raw else ''
                 if processid:
                     matching_processids.add(processid)
     
@@ -197,9 +201,11 @@ def filter_by_marker(input_file: str, marker_code: str, marker_column: str) -> S
             if row_num % 10000 == 0:
                 logging.info(f"Marker filtering: processed {row_num} rows")
                 
-            marker = row.get(marker_column, '').strip()
+            marker_raw = row.get(marker_column, '') or ''
+            marker = marker_raw.strip() if marker_raw else ''
             if marker and marker == marker_code:
-                processid = row.get('processid', '').strip()
+                processid_raw = row.get('processid', '') or ''
+                processid = processid_raw.strip() if processid_raw else ''
                 if processid:
                     matching_processids.add(processid)
     
@@ -226,9 +232,11 @@ def get_bins_for_processids(processids: Set[str], input_file: str) -> Set[str]:
         reader = csv.DictReader(f, delimiter='\t')
         
         for row in reader:
-            processid = row.get('processid', '').strip()
+            processid_raw = row.get('processid', '') or ''
+            processid = processid_raw.strip() if processid_raw else ''
             if processid in processids:
-                bin_uri = row.get('bin_uri', '').strip()
+                bin_uri_raw = row.get('bin_uri', '') or ''
+                bin_uri = bin_uri_raw.strip() if bin_uri_raw else ''
                 if bin_uri and bin_uri.lower() != 'none':
                     bins.add(bin_uri)
                     processids_with_bins += 1
@@ -258,9 +266,11 @@ def get_processids_for_bins(bins: Set[str], input_file: str) -> Set[str]:
         reader = csv.DictReader(f, delimiter='\t')
         
         for row in reader:
-            bin_uri = row.get('bin_uri', '').strip()
+            bin_uri_raw = row.get('bin_uri', '') or ''
+            bin_uri = bin_uri_raw.strip() if bin_uri_raw else ''
             if bin_uri and bin_uri in bins:
-                processid = row.get('processid', '').strip()
+                processid_raw = row.get('processid', '') or ''
+                processid = processid_raw.strip() if processid_raw else ''
                 if processid:
                     processids.add(processid)
     
@@ -473,7 +483,8 @@ def prescoring_filter(
             if row_num % 10000 == 0:
                 logging.info(f"Output writing: processed {row_num}/{total_rows} rows")
                 
-            processid = row.get('processid', '').strip()
+            processid_raw = row.get('processid', '') or ''
+            processid = processid_raw.strip() if processid_raw else ''
             if not processid:
                 rows_skipped_no_processid += 1
                 continue
@@ -486,7 +497,8 @@ def prescoring_filter(
             # Additional marker check: if marker filtering is enabled, 
             # check this specific record's marker, not just the processid
             if marker_code and 'marker' in column_map:
-                record_marker = row.get(column_map['marker'], '').strip()
+                record_marker_raw = row.get(column_map['marker'], '') or ''
+                record_marker = record_marker_raw.strip() if record_marker_raw else ''
                 if record_marker != marker_code:
                     rows_skipped_wrong_marker += 1
                     continue

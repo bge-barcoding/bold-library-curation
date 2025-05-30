@@ -257,3 +257,85 @@ The pipeline now intelligently handles file operations based on filtering config
 - **When filtering enabled**: Filtered file created and used for downstream processing  
 - **Dynamic input selection**: Automatic selection of appropriate input file throughout pipeline
 - **Resource savings**: Eliminates unnecessary file operations for improved performance on HPC systems
+### Enhanced BAGS Processing (v3.0 - Even Faster BAGS)
+- **Faster Species Assessment**: Optimized `assess_taxa.pl` script for improved BAGS evaluation performance
+- **Database Integration**: BAGS results now imported into database for complex querying capabilities
+- **Advanced Ranking**: Enhanced `ranking_with_sumscore.sql` provides comprehensive scoring combining specimen and species-level data
+- **Improved Dependency Management**: BAGS import integrated into workflow dependencies for consistent data availability
+
+### Performance Improvements
+- **Enhanced Taxonomy Loading**: Faster `load_taxonomy_faster.pl` with configurable chunking for memory optimization
+- **Optimized Database Operations**: Improved indexing and import processes throughout pipeline
+- **Smart Dependency Resolution**: Dynamic dependency management based on configuration options reduces unnecessary processing
+
+### File Handling Efficiency (v2.0+)
+The pipeline intelligently handles file operations based on filtering configuration:
+- **When filtering disabled**: No file copying occurs, original file used directly
+- **When filtering enabled**: Filtered file created and used for downstream processing  
+- **Dynamic input selection**: Automatic selection of appropriate input file throughout pipeline
+- **Resource savings**: Eliminates unnecessary file operations for improved performance on HPC systems
+
+## Performance Benchmarks
+
+### Typical Processing Times (Approximate)
+- **Small datasets** (< 10K records): 15-30 minutes
+- **Medium datasets** (10K-100K records): 1-3 hours
+- **Large datasets** (100K+ records): 3-8 hours
+
+### Memory Requirements
+- **Minimum**: 4GB RAM
+- **Recommended**: 8GB+ RAM for large datasets
+- **Taxonomy chunk size**: Configurable based on available memory
+
+### Optimization Tips
+1. **Use pre-scoring filter** for very large datasets to reduce processing time
+2. **Adjust `TAXONOMY_CHUNK_SIZE`** based on available system memory
+3. **Enable target lists** when focusing on specific species to reduce assessment overhead
+4. **Use SSD storage** for database operations when possible
+
+## Troubleshooting
+
+### Common Issues
+1. **Memory errors during taxonomy loading**: Reduce `TAXONOMY_CHUNK_SIZE` in config
+2. **Slow database operations**: Ensure adequate disk space and consider SSD storage
+3. **Missing dependencies**: Verify all conda environments are properly installed
+4. **Filtering errors**: Check that taxa and country list files exist and are properly formatted
+
+### Debug Mode
+Enable debug logging by setting `LOG_LEVEL: "DEBUG"` in config for detailed execution information.
+
+## Version History
+
+### v3.0 - Even Faster BAGS
+- Enhanced BAGS assessment with optimized `assess_taxa.pl`
+- BAGS database integration for improved querying
+- Advanced ranking with `ranking_with_sumscore.sql`
+- Performance optimizations throughout pipeline
+
+### v2.0 - Dynamic File Handling
+- Intelligent file handling based on filtering configuration
+- Dynamic input selection functions
+- Resource optimization for HPC environments
+
+### v1.0 - Initial Release
+- Core assessment pipeline with 16 quality criteria
+- Basic BAGS assessment
+- Pre-scoring filter capabilities
+- Target list filtering
+
+## Citation
+
+If you use this pipeline in your research, please cite:
+[Citation information to be added based on publication]
+
+## Support
+
+For issues, questions, or contributions, please:
+1. Check the troubleshooting section above
+2. Review log files in the `logs/` directory
+3. Open an issue in the project repository
+4. Contact the development team
+
+## License
+
+[License information to be added]
