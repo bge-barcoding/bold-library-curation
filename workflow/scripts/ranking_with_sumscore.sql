@@ -27,7 +27,7 @@ WITH PivotedCriteria AS (
         bc.recordid
 )
 
--- Main query to select from bold and join on pivoted criteria, then apply ranking system
+-- Main query to select from bold and join on pivoted criteria AND BAGS grades
 SELECT
     b.*,
     pc.SPECIES_ID,
@@ -47,6 +47,7 @@ SELECT
     pc.PUBLIC_VOUCHER,
     pc.MUSEUM_ID,
     pc.sumscore,
+    bags.bags_grade AS BAGS,  -- Add BAGS grade column
     CASE
         WHEN pc.SPECIES_ID = 1 AND pc.TYPE_SPECIMEN = 1 THEN 1
         WHEN pc.SPECIES_ID = 1 AND pc.SEQ_QUALITY = 1 AND pc.HAS_IMAGE = 1 AND pc.COLLECTORS = 1 AND pc.COLLECTION_DATE = 1 AND pc.COUNTRY = 1 AND (pc.SITE = 1 OR pc.SECTOR = 1 OR pc.REGION = 1 OR pc.COORD = 1) AND pc.IDENTIFIER = 1 AND pc.ID_METHOD = 1 AND (pc.INSTITUTION = 1 OR pc.PUBLIC_VOUCHER = 1 OR pc.MUSEUM_ID = 1) THEN 2
@@ -59,4 +60,6 @@ SELECT
 FROM
     bold b
 LEFT JOIN
-    PivotedCriteria pc ON b.recordid = pc.recordid;
+    PivotedCriteria pc ON b.recordid = pc.recordid
+LEFT JOIN
+    bags ON b.taxonid = bags.taxonid;

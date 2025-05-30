@@ -27,11 +27,47 @@ sub taxon {
         $log->info("Setting $level $name ($id) from kingdom $kingdom");
         $self->{'taxon'} = $taxon;
 
-        # Get all barcodes for this taxon. Possibly this might be the point where we
-        # add a search predicate to filter on top 3 quality level.
+        # Get all barcodes for this taxon - REMOVED COI-5P filter as it's handled upstream
+        # Include records that are identified to species level (same taxonid) 
+        # AND subspecies that belong to this species
         my $orm = $taxon->result_source->schema;
-        $self->records( [ $orm->resultset('Bold')->search({ taxonid => $id + 1, marker_code => 'COI-5P' })->all ] );
-        $log->info("Found " . $self->n_records . " records for $name");
+        
+        # Build the query to include both species-level and subspecies records
+        my @search_conditions;
+        
+        # Always include records with the exact taxonid (species-level records)
+        push @search_conditions, { taxonid => $id };
+        
+        # If this is a species-level taxon, also include subspecies records
+        if ( $level eq 'species' ) {
+            # Find all subspecies that belong to this species by looking for taxa where:
+            # 1. Have level = 'subspecies' 
+            # 2. The name starts with this species name (e.g., "Argia fumipennis violacea")
+            my $species_name_pattern = $name . ' %';
+            my $subspecies_rs = $orm->resultset('Taxa')->search({
+                level => 'subspecies',
+                name => { -like => $species_name_pattern }
+            });
+            
+            my @subspecies_taxonids;
+            while ( my $subspecies = $subspecies_rs->next ) {
+                push @subspecies_taxonids, $subspecies->taxonid;
+                $log->info("Found subspecies: " . $subspecies->name . " (taxonid " . $subspecies->taxonid . ")");
+            }
+            
+            if ( @subspecies_taxonids ) {
+                $log->info("Including " . scalar(@subspecies_taxonids) . " subspecies records for $name");
+                push @search_conditions, { taxonid => { -in => \@subspecies_taxonids } };
+            }
+        }
+        
+        # Combine conditions with OR
+        my $search_condition = @search_conditions > 1 ? 
+            { -or => \@search_conditions } : 
+            $search_conditions[0];
+        
+        $self->records( [ $orm->resultset('Bold')->search( $search_condition )->all ] );
+        $log->info("Found " . $self->n_records . " species + subspecies records for $name");
 
         # Get all distinct, defined BINs for this taxon's records
         $self->bins( [ keys %{{ map { $_ => 1 } grep { $_ } map { $_->bin_uri } @{ $self->records } }} ] );
@@ -47,7 +83,7 @@ sub n_bins { scalar @{ shift->bins } }
 sub grade {
     my $self = shift;
 
-    # If this list's size is greater than zero, then the taxon shares a BIN with another taxon
+    # If this list's size is greater than zero, then the taxon shares a BIN with another species
     my $is_shared = scalar($self->sharing_taxa);
 
     # Grade A means: >=10 specimens, in 1 unshared BIN
@@ -57,7 +93,7 @@ sub grade {
     }
 
     # Grade B means: 3-9 specimens, in 1 unshared BIN
-    elsif ( 3 <= $self->n_records < 10 && $self->n_bins == 1 && !$is_shared ) {
+    elsif ( 3 <= $self->n_records && $self->n_records < 10 && $self->n_bins == 1 && !$is_shared ) {
         $log->info($self->taxon->name . " is BAGS grade B");
         return 'B';
     }
@@ -74,7 +110,7 @@ sub grade {
         return 'D';
     }
 
-    # Grade E means: BIN sharing
+    # Grade E means: BIN sharing with other species
     elsif ($is_shared) {
         $log->info($self->taxon->name . " is BAGS grade E");
         return 'E';
@@ -91,23 +127,140 @@ sub taxa_sharing_bin {
     my ( $self, $bin ) = @_;
     my $orm = $self->taxon->result_source->schema;
 
-    # Get all records with the same BIN URI
-    my $bin_records = $orm->resultset('Bold')->search({ bin_uri => $bin });
-    $log->info("Assessing " . $bin_records->count . " records sharing bin $bin");
+    # Get all records with the same BIN URI that are identified to species level
+    # We need to join with taxa table to ensure we only get species-level identifications
+    my $bin_records = $orm->resultset('Bold')->search({ 
+        bin_uri => $bin 
+    });
+    my $total_count = $bin_records->count;
+    $log->info("Assessing $total_count total records sharing bin $bin");
 
-    # Get all distinct taxon identifications for the records matching the BIN URIs
-    my %seen;
+    # Get all distinct species-level taxa for the records matching the BIN URI
+    my %seen_species;
+    my $processed_count = 0;
+    my $valid_taxonid_count = 0;
+    my $species_level_count = 0;
+    my $higher_level_count = 0;
+    
     while ( my $record = $bin_records->next ) {
-        my $name = $record->identification;
-        $seen{$name}++;
+        $processed_count++;
+        
+        # Get the taxon for this record - with proper error handling
+        my $record_taxonid = $record->get_column('taxonid');  # Use get_column to get raw value
+        
+        # DEBUG: Enhanced logging for troubleshooting
+        if ($processed_count <= 10) {
+            $log->info("DEBUG Record $processed_count:");
+            $log->info("  recordid: " . ($record->recordid // 'undef'));
+            $log->info("  taxonid: " . ($record_taxonid // 'undef')); 
+            $log->info("  bin_uri: " . ($record->bin_uri // 'undef'));
+        }
+        
+        # FIXED: More robust taxonid validation
+        # Handle both string and numeric taxonids, and strip whitespace
+        my $clean_taxonid;
+        if (defined $record_taxonid) {
+            $clean_taxonid = "$record_taxonid";  # Stringify
+            $clean_taxonid =~ s/^\s+|\s+$//g;    # Strip whitespace
+        }
+        
+        unless (defined $clean_taxonid && $clean_taxonid ne '' && $clean_taxonid =~ /^\d+$/ && $clean_taxonid > 0) {
+            if ($processed_count <= 10) {
+                $log->info("  -> SKIP: Invalid taxonid (original: " . ($record_taxonid // 'undef') . 
+                          ", cleaned: " . ($clean_taxonid // 'undef') . ")");
+            }
+            next;
+        }
+        $valid_taxonid_count++;
+        
+        if ($processed_count <= 10) {
+            $log->info("  -> Valid taxonid: $clean_taxonid");
+        }
+        
+        my $record_taxon;
+        eval {
+            # Use the cleaned taxonid for lookup
+            my $taxon_rs = $orm->resultset('Taxa')->search({ taxonid => $clean_taxonid });
+            $record_taxon = $taxon_rs->first;
+        };
+        if ($@) {
+            $log->warn("  -> ERROR: Cannot find taxon for taxonid $clean_taxonid: $@");
+            next;
+        }
+        
+        if ($record_taxon) {
+            if ($processed_count <= 10) {
+                $log->info("  -> Found taxon: " . $record_taxon->name . " (level: " . $record_taxon->level . ")");
+            }
+            
+            # Count records at species level AND subspecies level that could represent 
+            # additional species diversity
+            if ( $record_taxon->level eq 'species' ) {
+                $species_level_count++;
+                my $species_name = $record_taxon->name;
+                $seen_species{$species_name}++;
+                if ($processed_count <= 10) {
+                    $log->info("  -> SPECIES: $species_name");
+                }
+            } elsif ( $record_taxon->level eq 'subspecies' ) {
+                # For subspecies, extract the species name (first two words)
+                # e.g., "Argia fumipennis violacea" -> "Argia fumipennis"
+                my $subspecies_full_name = $record_taxon->name;
+                my @name_parts = split /\s+/, $subspecies_full_name;
+                if (@name_parts >= 2) {
+                    my $parent_species_name = join(' ', @name_parts[0,1]);
+                    $species_level_count++;  # Count subspecies as species-level diversity
+                    $seen_species{$parent_species_name}++;
+                    if ($processed_count <= 10) {
+                        $log->info("  -> SUBSPECIES: $subspecies_full_name -> counting as $parent_species_name");
+                    }
+                } else {
+                    if ($processed_count <= 10) {
+                        $log->info("  -> SUBSPECIES: $subspecies_full_name (cannot parse parent species)");
+                    }
+                }
+            } else {
+                # For higher-level assignments, we need to check if this represents
+                # additional species diversity within the BIN
+                $higher_level_count++;
+                if ($processed_count <= 10) {
+                    $log->info("  -> HIGHER LEVEL: " . $record_taxon->level . " = " . $record_taxon->name);
+                }
+                # Note: We don't count higher-level assignments as separate species
+                # because they don't represent confirmed species identifications
+            }
+        } else {
+            if ($processed_count <= 10) {
+                $log->warn("  -> ERROR: No taxon found for taxonid $clean_taxonid");
+            }
+        }
     }
+    
+    $log->info("SUMMARY: Processed $processed_count records");
+    $log->info("  Valid taxonids: $valid_taxonid_count"); 
+    $log->info("  Species + Subspecies level: $species_level_count");
+    $log->info("  Higher level: $higher_level_count");
+    $log->info("  Distinct species found: " . scalar(keys %seen_species));
 
-    # Remove self and lineage
-    delete $seen{$_->name} for $self->taxon->lineage;
+    # Remove the current species
+    my $current_species = $self->taxon->name;
+    delete $seen_species{$current_species};
 
     # Report and return the names
-    my @names = keys %seen;
-    $log->info("Found " . scalar(@names) . " other taxa sharing " . $self->n_bins . " distinct BINs");
+    my @names = keys %seen_species;
+    if (@names) {
+        $log->info("Found " . scalar(@names) . " other species sharing bin $bin: " . 
+                   join(", ", sort @names));
+    } else {
+        $log->info("Found 0 other species sharing bin $bin");
+        # If we have higher-level assignments but no species-level ones,
+        # this might indicate cryptic diversity that should be flagged
+        if ($higher_level_count > 0 && $species_level_count == 0) {
+            $log->warn("WARNING: BIN $bin has $higher_level_count higher-level assignments " .
+                      "but no species-level identifications - possible cryptic diversity");
+        }
+    }
+    
     return @names;
 }
 
@@ -115,23 +268,20 @@ sub sharing_taxa {
     my $self = shift;
     my $orm  = $self->taxon->result_source->schema;
 
-    # Get all the records with the same BIN URIs
-    my $bin_records = $orm->resultset('Bold')->search({ bin_uri => { -in => $self->bins } });
-    $log->info("Assessing " . $bin_records->count . " records sharing " . $self->n_bins . " distinct BINs");
-
-    # Get all distinct taxon identifications for the records matching the BIN URIs
-    my %seen;
-    while ( my $record = $bin_records->next ) {
-        my $name = $record->identification;
-        $seen{$name}++;
+    # Get all species that share any BIN with this species
+    my %all_sharing_species;
+    
+    for my $bin ( @{ $self->bins } ) {
+        next unless defined $bin;
+        my @sharing = $self->taxa_sharing_bin($bin);
+        for my $species (@sharing) {
+            $all_sharing_species{$species}++;
+        }
     }
 
-    # Remove self and lineage
-    delete $seen{$_->name} for $self->taxon->lineage;
-
-    # Report and return distinct names
-    my @names = keys %seen;
-    $log->info("Found " . scalar(@names) . " other taxa sharing " . $self->n_bins . " distinct BINs");
+    # Report and return distinct species names
+    my @names = keys %all_sharing_species;
+    $log->info("Found " . scalar(@names) . " total species sharing " . $self->n_bins . " distinct BINs with " . $self->taxon->name);
     return @names;
 }
 

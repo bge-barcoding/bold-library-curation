@@ -129,13 +129,19 @@ sub extract_unique_taxonomic_paths {
             }
             
             # Build taxonomic path from kingdom down to lowest defined level
+            # FIXED: Collect all defined levels, skipping "None" values
             my $path = [];
+            my $last_valid_rank = -1;
+            
             for my $i (0 .. $#levels) {
                 my $level = $levels[$i];
                 my $name = $record->get_column($level) || '';
                 
-                # Stop at first undefined level
-                last if $name eq '' || $name eq 'None';
+                # Skip empty, "None", or undefined values but continue processing
+                if ($name eq '' || $name eq 'None' || !defined($name)) {
+                    $log->info("DEBUG Record $record_count: Skipping empty/None $level") if $record_count <= 3;
+                    next;
+                }
                 
                 push @$path, {
                     kingdom => $kingdom,
@@ -143,11 +149,15 @@ sub extract_unique_taxonomic_paths {
                     level => $level,
                     rank => $i
                 };
+                $last_valid_rank = $i;
             }
             
             # DEBUG: Log path length for first few records
             if ($record_count <= 3) {
                 $log->info("DEBUG Record $record_count: path length = " . scalar(@$path));
+                for my $node (@$path) {
+                    $log->info("DEBUG   Found: $node->{level} = $node->{name}");
+                }
             }
             
             # Store each node in the path
@@ -321,7 +331,10 @@ sub find_taxonid_for_record {
         my $level = $levels[$i];
         my $name = $record->get_column($level) || '';
         
-        last if $name eq '' || $name eq 'None';
+        # FIXED: Skip "None" values instead of stopping
+        if ($name eq '' || $name eq 'None' || !defined($name)) {
+            next;  # Skip this level but continue processing
+        }
         
         push @path_components, {
             kingdom => $kingdom,
