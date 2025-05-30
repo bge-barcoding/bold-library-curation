@@ -25,6 +25,9 @@ from pathlib import Path
 from typing import Set, Optional, Dict, Any
 import time
 
+# Increase CSV field size limit to handle large TSV files
+csv.field_size_limit(sys.maxsize)
+
 
 def setup_logging(log_level: str = "INFO") -> None:
     """Set up logging configuration."""
@@ -489,6 +492,9 @@ def prescoring_filter(
                     continue
             
             # If we get here, the record passes all filters
+            # Filter out any fields not in fieldnames to prevent DictWriter errors
+            valid_keys = set(writer.fieldnames)
+            row = {k: v for k, v in row.items() if k in valid_keys}
             writer.writerow(row)
             rows_written += 1
             unique_processids_written.add(processid)
