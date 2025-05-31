@@ -70,7 +70,18 @@ sub taxon {
         $log->info("Found " . $self->n_records . " species + subspecies records for $name");
 
         # Get all distinct, defined BINs for this taxon's records
-        $self->bins( [ keys %{{ map { $_ => 1 } grep { $_ } map { $_->bin_uri } @{ $self->records } }} ] );
+        # Filter out undefined, empty, and "None" values (None = no BIN assignment)
+        $self->bins( [ keys %{{ map { $_ => 1 } grep { defined $_ && $_ ne '' && $_ ne 'None' && $_ =~ /^BOLD:/ } map { $_->bin_uri } @{ $self->records } }} ] );
+        
+        # Count records with vs without valid BINs for logging
+        my $total_records = $self->n_records;
+        my $records_with_bins = scalar(grep { defined $_->bin_uri && $_->bin_uri ne '' && $_->bin_uri ne 'None' && $_->bin_uri =~ /^BOLD:/ } @{ $self->records });
+        my $records_without_bins = $total_records - $records_with_bins;
+        
+        $log->info("Found " . $self->n_bins . " distinct BINs for $name");
+        if ($records_without_bins > 0) {
+            $log->info("Note: $records_without_bins of $total_records records lack valid BIN assignments");
+        }
         $log->info("Found " . $self->n_bins . " distinct BINs for $name");
     }
     return $self->{'taxon'};
@@ -116,9 +127,16 @@ sub grade {
         return 'E';
     }
 
+    # Grade F means: no valid BINs (all records lack BIN assignments)
+    elsif ( $self->n_bins == 0 ) {
+        $log->info($self->taxon->name . " is BAGS grade F (no valid BINs)");
+        return 'F';
+    }
+
     # This shouldn't happen
     else {
-        $log->warn("Could not determine BAGS grade for " . $self->taxon->name);
+        $log->warn("Could not determine BAGS grade for " . $self->taxon->name . 
+                  " (records: " . $self->n_records . ", bins: " . $self->n_bins . ", shared: $is_shared)");
         return 'F';
     }
 }

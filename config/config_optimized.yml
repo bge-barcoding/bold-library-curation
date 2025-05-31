@@ -1,0 +1,28 @@
+config:
+BOLD_TSV: resources/test_data/test_odonata_large.tsv
+DB_FILE: results_optimized/bold.db
+SCHEMA: workflow/scripts/schema.sql
+INDEXES: workflow/scripts/indexes.sql
+LIBS: lib/
+PATH: lib/
+TAXONOMY_CHUNK_SIZE: 10000  # Adjust based on your system's memory
+TAXONOMY_LOADED: results_optimized/taxonomy_check.tsv
+CRITERIA: "COLLECTION_DATE COLLECTORS COORD COUNTRY REGION SECTOR HAS_IMAGE IDENTIFIER ID_METHOD INSTITUTION MUSEUM_ID PUBLIC_VOUCHER SEQ_QUALITY SITE SPECIES_ID TYPE_SPECIMEN"
+DB_FILE_INDEXED: results_optimized/bold_indexed.ok
+TARGET_LIST: resources/test_data/test_odonata_spec.csv
+USE_TARGET_LIST: false
+PROJECT_NAME: "bold-curation"
+TAXON_LEVEL: "species"
+KINGDOM: "Animalia"
+LOG_LEVEL: "INFO" 
+DB_CRITERIA_ADDED: results_optimized/criteria_indexed
+
+# Pre-scoring filter options
+ENABLE_PRESCORING_FILTER: true  # Master switch true / false
+FILTER_TAXA: true  # true / false
+FILTER_TAXA_LIST: "resources/test_data/test_odonata_spec.csv"
+FILTER_COUNTRIES: true  # true / false
+FILTER_COUNTRY_LIST: "resources/countries/test_odonata.txt"
+FILTER_BINS: true  # Include BIN_URI sharing true / false
+MARKER: "COI-5P"  # Specify marker code (e.g., "COI-5P") to filter by marker_code field, or null to disable marker filtering
+PRESCORING_FILTERED_OUTPUT: "results_optimized/test_odonata_large_filtered.tsv"
