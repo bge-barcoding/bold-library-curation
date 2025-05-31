@@ -1,6 +1,6 @@
 .snakemake
 resources/BOLD_Public.*.tsv
-results/bold.db
+results/
 .idea
 .DS_Store
 *.tsv.gz
@@ -10,3 +10,4 @@ results/bold.db
 criteria/
 logs/
 results/
+cluster-tests/
