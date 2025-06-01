@@ -10,8 +10,6 @@ use BCDM::BAGS;
 # Simplified BAGS analysis that outputs only essential columns
 # No taxonomic rank columns to avoid alignment issues
 
-my $endpoint = 'https://boldsystems.org/index.php/Public_BarcodeCluster?clusteruri=';
-
 my $db_file;
 my $progress_every = 50;
 my $quiet = 0;
@@ -65,18 +63,25 @@ while (my $taxon = $iterator->next) {
     my $grade = $bags->grade;
     $grades{$grade}++;
     
-    # Simple output - just the essential columns
+    # Collect all BIN data for aggregation into single row
+    my @bin_uris = ();
+    my @sharer_lists = ();
+    
     for my $bin (@{ $bags->bins }) {
         next unless defined $bin && $bin =~ /^BOLD:/;
         my @sharers = $bags->taxa_sharing_bin($bin);
         
-        print join("\t", 
-            $taxon->taxonid,
-            $grade,
-            $endpoint . $bin,
-            join(',', @sharers)
-        ), "\n";
+        push @bin_uris, $bin;
+        push @sharer_lists, join(',', @sharers);
     }
+    
+    # Output single aggregated record per taxon
+    print join("\t", 
+        $taxon->taxonid,
+        $grade,
+        join('|', @bin_uris),
+        join('|', @sharer_lists)
+    ), "\n";
     
     $count++;
     

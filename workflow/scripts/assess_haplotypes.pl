@@ -7,6 +7,7 @@ use Time::HiRes qw(time);
 
 # Haplotype identification within BINs and species groups
 # Handles large datasets efficiently by processing in chunks
+# OUTPUT: TSV format compatible with other assessment scripts
 
 my $db_file;
 my $log_level = 'INFO';
@@ -31,111 +32,42 @@ sub log_msg {
     print STDERR "[$timestamp] $level: $msg\n";
 }
 
-# Connect to database
+# Connect to database (READ-ONLY)
 log_msg('INFO', "Connecting to database: $db_file");
 my $dbh = DBI->connect("dbi:SQLite:$db_file", "", "", {
     RaiseError => 1,
-    AutoCommit => 1,  # Temporarily enable AutoCommit for PRAGMA statements
+    AutoCommit => 1,
+    ReadOnly => 1,  # READ-ONLY connection prevents locking issues
     sqlite_see_if_its_a_number => 1,
 }) or die "Cannot connect to database: $DBI::errstr";
-
-# Enable performance optimizations (must be done outside of transactions)
-$dbh->do("PRAGMA journal_mode = WAL");
-$dbh->do("PRAGMA synchronous = NORMAL");
-$dbh->do("PRAGMA cache_size = -256000");  # 256MB cache
-$dbh->do("PRAGMA temp_store = MEMORY");
-
-# Now disable AutoCommit for transaction control
-$dbh->{AutoCommit} = 0;
-
-# Create haplotype tables if they don't exist
-create_haplotype_tables($dbh);
 
 # Get sequences grouped by BIN and species
 log_msg('INFO', "Retrieving sequences for haplotype analysis...");
 
-# First process BIN-based groups
-my $bin_sql = q{
-    SELECT recordid, bin_uri, species, nuc, nuc_basecount
-    FROM bold 
-    WHERE bin_uri IS NOT NULL 
-      AND bin_uri != 'None' 
-      AND bin_uri != ''
-      AND nuc IS NOT NULL 
-      AND nuc != ''
-      AND species IS NOT NULL
-      AND species != ''
-    ORDER BY bin_uri, species
-};
-
-# Then process species-based groups (no BIN)
-my $species_sql = q{
-    SELECT recordid, species, nuc, nuc_basecount
-    FROM bold 
-    WHERE (bin_uri IS NULL OR bin_uri = 'None' OR bin_uri = '')
-      AND nuc IS NOT NULL 
-      AND nuc != ''
-      AND species IS NOT NULL
-      AND species != ''
-    ORDER BY species
-};
-
-# Process BIN-based haplotypes first
-log_msg('INFO', "Processing BIN-based haplotypes...");
+# Global data structures for in-memory processing
 my %global_haplotypes = ();  # Track all haplotypes globally for deduplication
-process_bin_haplotypes($dbh, \%global_haplotypes);
+my %haplotype_assignments = ();  # recordid -> haplotype_name mapping
+my %haplotype_names_used = ();  # Track used names to prevent duplicates
 
-# Then process species-based haplotypes
+# First process BIN-based groups
+log_msg('INFO', "Processing BIN-based haplotypes...");
+process_bin_haplotypes($dbh, \%global_haplotypes, \%haplotype_assignments, \%haplotype_names_used);
+
+# Then process species-based groups
 log_msg('INFO', "Processing species-based haplotypes...");
-process_species_haplotypes($dbh, \%global_haplotypes);
+process_species_haplotypes($dbh, \%global_haplotypes, \%haplotype_assignments, \%haplotype_names_used);
 
-# Generate assessment output
+# Generate TSV output compatible with other assessment scripts
 log_msg('INFO', "Generating haplotype assessment output...");
-generate_assessment_output($dbh);
+generate_tsv_output(\%haplotype_assignments);
 
-$dbh->commit;
 $dbh->disconnect;
-
 log_msg('INFO', "Haplotype analysis completed successfully");
 
 # Subroutines
 
-sub create_haplotype_tables {
-    my ($dbh) = @_;
-    
-    log_msg('INFO', "Creating haplotype tables...");
-    
-    $dbh->do(q{
-        CREATE TABLE IF NOT EXISTS "haplotypes" (
-            "haplotype_id" INTEGER PRIMARY KEY,
-            "haplotype_name" TEXT NOT NULL UNIQUE,
-            "bin_uri" TEXT,
-            "species_name" TEXT,
-            "sequence_length" INTEGER,
-            "record_count" INTEGER DEFAULT 1,
-            "created_date" TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    });
-    
-    $dbh->do(q{
-        CREATE TABLE IF NOT EXISTS "bold_haplotypes" (
-            "bold_haplotype_id" INTEGER PRIMARY KEY,
-            "recordid" INTEGER NOT NULL,
-            "haplotype_id" INTEGER NOT NULL,
-            "is_representative" INTEGER DEFAULT 0,
-            FOREIGN KEY(recordid) REFERENCES bold(recordid),
-            FOREIGN KEY(haplotype_id) REFERENCES haplotypes(haplotype_id),
-            CONSTRAINT unique_record_haplotype UNIQUE (recordid)
-        )
-    });
-    
-    # Clear existing haplotype data for fresh analysis
-    $dbh->do("DELETE FROM bold_haplotypes");
-    $dbh->do("DELETE FROM haplotypes");
-}
-
 sub process_bin_haplotypes {
-    my ($dbh, $global_haplotypes) = @_;
+    my ($dbh, $global_haplotypes, $haplotype_assignments, $haplotype_names_used) = @_;
     
     my $sth = $dbh->prepare(q{
         SELECT recordid, bin_uri, species, nuc, nuc_basecount
@@ -163,7 +95,8 @@ sub process_bin_haplotypes {
         # If we've moved to a new BIN+species group, process the previous group
         if ($current_bin ne $row->{bin_uri} || $current_species ne $row->{species}) {
             if (%current_group) {
-                process_haplotype_group(\%current_group, $current_bin, $current_species, $dbh, $global_haplotypes);
+                process_haplotype_group(\%current_group, $current_bin, $current_species, 
+                                      $global_haplotypes, $haplotype_assignments, $haplotype_names_used);
                 %current_group = ();
             }
             $current_bin = $row->{bin_uri};
@@ -185,14 +118,15 @@ sub process_bin_haplotypes {
     
     # Process final group
     if (%current_group) {
-        process_haplotype_group(\%current_group, $current_bin, $current_species, $dbh, $global_haplotypes);
+        process_haplotype_group(\%current_group, $current_bin, $current_species, 
+                              $global_haplotypes, $haplotype_assignments, $haplotype_names_used);
     }
     
     log_msg('INFO', "Completed BIN-based processing: $processed_records records");
 }
 
 sub process_species_haplotypes {
-    my ($dbh, $global_haplotypes) = @_;
+    my ($dbh, $global_haplotypes, $haplotype_assignments, $haplotype_names_used) = @_;
     
     my $sth = $dbh->prepare(q{
         SELECT recordid, species, nuc, nuc_basecount
@@ -215,7 +149,8 @@ sub process_species_haplotypes {
         # If we've moved to a new species, process the previous group
         if ($current_species ne $row->{species}) {
             if (%current_group) {
-                process_haplotype_group(\%current_group, undef, $current_species, $dbh, $global_haplotypes);
+                process_haplotype_group(\%current_group, undef, $current_species, 
+                                      $global_haplotypes, $haplotype_assignments, $haplotype_names_used);
                 %current_group = ();
             }
             $current_species = $row->{species};
@@ -236,14 +171,15 @@ sub process_species_haplotypes {
     
     # Process final group
     if (%current_group) {
-        process_haplotype_group(\%current_group, undef, $current_species, $dbh, $global_haplotypes);
+        process_haplotype_group(\%current_group, undef, $current_species, 
+                              $global_haplotypes, $haplotype_assignments, $haplotype_names_used);
     }
     
     log_msg('INFO', "Completed species-based processing: $processed_records records");
 }
 
 sub process_haplotype_group {
-    my ($group, $bin_uri, $species, $dbh, $global_haplotypes) = @_;
+    my ($group, $bin_uri, $species, $global_haplotypes, $haplotype_assignments, $haplotype_names_used) = @_;
     
     my @record_ids = keys %$group;
     return unless @record_ids;
@@ -285,31 +221,32 @@ sub process_haplotype_group {
         }
     }
     
-    # Create haplotype records and assignments
+    # Create haplotype assignments
     my $haplotype_counter = 1;
     for my $hap_group (@haplotype_groups) {
-        my $haplotype_name = generate_haplotype_name($bin_uri, $species, $haplotype_counter);
+        my $haplotype_name = generate_unique_haplotype_name($bin_uri, $species, $haplotype_counter, $haplotype_names_used);
         
         # Check for global deduplication (for species-based haplotypes)
-        my $existing_haplotype_id = check_global_haplotype($hap_group->[0]{sequence}, $species, $global_haplotypes);
+        my $existing_haplotype_name = check_global_haplotype($hap_group->[0]{sequence}, $species, $global_haplotypes);
         
-        my $haplotype_id;
-        if ($existing_haplotype_id) {
-            $haplotype_id = $existing_haplotype_id;
-            log_msg('INFO', "Reusing existing haplotype for $haplotype_name");
+        if ($existing_haplotype_name) {
+            $haplotype_name = $existing_haplotype_name;
+            log_msg('INFO', "Reusing existing haplotype: $haplotype_name");
         } else {
-            $haplotype_id = create_haplotype($dbh, $haplotype_name, $bin_uri, $species, $hap_group);
-            
             # Add to global tracking
             $global_haplotypes->{$hap_group->[0]{sequence}} = {
-                haplotype_id => $haplotype_id,
+                haplotype_name => $haplotype_name,
                 species => $species,
                 bin_uri => $bin_uri,
             };
+            # Mark name as used
+            $haplotype_names_used->{$haplotype_name} = 1;
         }
         
         # Assign all records in this group to the haplotype
-        assign_records_to_haplotype($dbh, $hap_group, $haplotype_id);
+        for my $record (@$hap_group) {
+            $haplotype_assignments->{$record->{record_id}} = $haplotype_name;
+        }
         
         $haplotype_counter++;
     }
@@ -385,74 +322,57 @@ sub check_global_haplotype {
         if ($existing->{species} eq $species && 
             $existing->{bin_uri} && 
             sequences_match($sequence, $existing_seq)) {
-            return $existing->{haplotype_id};
+            return $existing->{haplotype_name};
         }
     }
     
     return undef;
 }
 
-sub generate_haplotype_name {
-    my ($bin_uri, $species, $counter) = @_;
+sub generate_unique_haplotype_name {
+    my ($bin_uri, $species, $counter, $haplotype_names_used) = @_;
     
+    my $base_name;
     if ($bin_uri) {
-        return "${bin_uri}_H${counter}";
+        $base_name = "${bin_uri}_H";
     } else {
         # Clean species name for use in identifier
         my $clean_species = $species;
         $clean_species =~ s/\s+/_/g;
         $clean_species =~ s/[^A-Za-z0-9_]//g;
-        return "${clean_species}_H${counter}";
+        $base_name = "${clean_species}_H";
     }
-}
-
-sub create_haplotype {
-    my ($dbh, $name, $bin_uri, $species, $hap_group) = @_;
     
-    my $representative = $hap_group->[0];  # Use first record as representative
+    # Generate unique name by incrementing counter if needed
+    my $attempt_counter = $counter;
+    my $candidate_name = "${base_name}${attempt_counter}";
     
-    my $sth = $dbh->prepare(q{
-        INSERT INTO haplotypes (haplotype_name, bin_uri, species_name, sequence_length, record_count)
-        VALUES (?, ?, ?, ?, ?)
-    });
-    
-    $sth->execute($name, $bin_uri, $species, $representative->{length}, scalar @$hap_group);
-    
-    return $dbh->last_insert_id("", "", "haplotypes", "haplotype_id");
-}
-
-sub assign_records_to_haplotype {
-    my ($dbh, $hap_group, $haplotype_id) = @_;
-    
-    my $sth = $dbh->prepare(q{
-        INSERT INTO bold_haplotypes (recordid, haplotype_id, is_representative)
-        VALUES (?, ?, ?)
-    });
-    
-    for my $i (0 .. $#{$hap_group}) {
-        my $record = $hap_group->[$i];
-        my $is_representative = ($i == 0) ? 1 : 0;  # First record is representative
+    while (exists $haplotype_names_used->{$candidate_name}) {
+        $attempt_counter++;
+        $candidate_name = "${base_name}${attempt_counter}";
         
-        $sth->execute($record->{record_id}, $haplotype_id, $is_representative);
+        # Safety check to prevent infinite loops
+        if ($attempt_counter > 10000) {
+            log_msg('ERROR', "Unable to generate unique haplotype name for $base_name after 10000 attempts");
+            last;
+        }
     }
+    
+    return $candidate_name;
 }
 
-sub generate_assessment_output {
-    my ($dbh) = @_;
+sub generate_tsv_output {
+    my ($haplotype_assignments) = @_;
     
     # Output header compatible with other assessment scripts
     print "recordid\thaplotype_id\tstatus\tnotes\n";
     
-    my $sth = $dbh->prepare(q{
-        SELECT bh.recordid, h.haplotype_name
-        FROM bold_haplotypes bh
-        JOIN haplotypes h ON bh.haplotype_id = h.haplotype_id
-        ORDER BY bh.recordid
-    });
-    
-    $sth->execute();
-    
-    while (my ($recordid, $haplotype_name) = $sth->fetchrow_array()) {
+    # Sort by recordid for consistent output
+    for my $recordid (sort { $a <=> $b } keys %$haplotype_assignments) {
+        my $haplotype_name = $haplotype_assignments->{$recordid};
         print "$recordid\t$haplotype_name\t1\tHaplotype assigned\n";
     }
+    
+    my $total_assignments = scalar keys %$haplotype_assignments;
+    log_msg('INFO', "Generated $total_assignments haplotype assignments");
 }

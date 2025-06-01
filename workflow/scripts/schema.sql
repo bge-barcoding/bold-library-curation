@@ -156,42 +156,22 @@ CREATE TABLE IF NOT EXISTS "bold_criteria" (
     FOREIGN KEY(criterionid) REFERENCES criteria(criterionid)
 );
 
--- Table to store unique haplotypes identified within BINs and species groups
--- Each haplotype represents a group of sequences that are identical over
--- their common overlap regions (considering reverse complements)
-CREATE TABLE IF NOT EXISTS "haplotypes" (
-    "haplotype_id" INTEGER PRIMARY KEY,
-    "haplotype_name" TEXT NOT NULL UNIQUE,  -- e.g., "BOLD:AAA1234_H1" or "Homo_sapiens_H1"
-    "bin_uri" TEXT,                         -- NULL for species-based haplotypes
-    "species_name" TEXT,                    -- Always populated
-    "sequence_length" INTEGER,              -- Length of representative sequence
-    "record_count" INTEGER DEFAULT 1,      -- Number of records with this haplotype
-    "created_date" TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    
-    -- Ensure unique naming within bin/species context
-    CONSTRAINT unique_haplotype_per_context UNIQUE (bin_uri, species_name, haplotype_name)
-);
-
--- Junction table linking BOLD records to their assigned haplotypes
+-- Table to store haplotype assignments for BOLD records
 -- Each record is assigned to exactly one haplotype based on sequence similarity
+-- Haplotypes are identified within BINs and species groups
 CREATE TABLE IF NOT EXISTS "bold_haplotypes" (
-    "bold_haplotype_id" INTEGER PRIMARY KEY,
-    "recordid" INTEGER NOT NULL,
-    "haplotype_id" INTEGER NOT NULL,
-    "is_representative" INTEGER DEFAULT 0,  -- 1 if this record represents the haplotype
+    "recordid" INTEGER NOT NULL,            -- Foreign key to bold table
+    "haplotype_id" TEXT NOT NULL,           -- Haplotype identifier (e.g., "BOLD:AAA1234_H1", "Species_name_H1")
     
-    FOREIGN KEY(recordid) REFERENCES bold(recordid),
-    FOREIGN KEY(haplotype_id) REFERENCES haplotypes(haplotype_id),
-    
-    -- Ensure each record is assigned to only one haplotype
-    CONSTRAINT unique_record_haplotype UNIQUE (recordid)
+    PRIMARY KEY (recordid),
+    FOREIGN KEY(recordid) REFERENCES bold(recordid)
 );
 
 -- Table to store BAGS (Barcode, Audit & Grade System) assessments for species
 -- Each species receives a grade based on various quality criteria and BIN analysis
 CREATE TABLE IF NOT EXISTS "bags" (
     "taxonid" INTEGER NOT NULL,             -- Foreign key to taxa table
-    "bags_grade" TEXT NOT NULL,             -- BAGS grade: A, B, C, D, or F
+    "bags_grade" TEXT NOT NULL,             -- BAGS grade: A, B, C, D, E or F
     "bin_uri" TEXT,                         -- BIN identifier (may be null)
     "sharers" TEXT,                         -- Information about BIN sharing
     
@@ -202,8 +182,6 @@ CREATE TABLE IF NOT EXISTS "bags" (
 );
 
 -- Indexes for haplotype analysis performance
-CREATE INDEX IF NOT EXISTS idx_haplotypes_bin_uri ON haplotypes(bin_uri);
-CREATE INDEX IF NOT EXISTS idx_haplotypes_species ON haplotypes(species_name);
 CREATE INDEX IF NOT EXISTS idx_bold_haplotypes_recordid ON bold_haplotypes(recordid);
 CREATE INDEX IF NOT EXISTS idx_bold_haplotypes_haplotype ON bold_haplotypes(haplotype_id);
 

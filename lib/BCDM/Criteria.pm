@@ -6,20 +6,20 @@ use BCDM::ORM;
 use Module::Load;
 use Log::Log4perl qw(:easy);
 
-our $SPECIES_ID=1;      # 455.63s user 8.64s system 95% cpu 8:05.72 total
-our $TYPE_SPECIMEN=2;   # 1411.82s user 20.51s system 93% cpu 25:24.25 total
-our $SEQ_QUALITY=3;     # 846.79s user 10.82s system 97% cpu 14:37.19 total
-our $PUBLIC_VOUCHER=4;  # 1084.40s user 17.85s system 96% cpu 19:01.70 total
-our $HAS_IMAGE=5;       # 2553.98s user 208.97s system 3% cpu 25:06:17.02 total
-our $IDENTIFIER=6;      # 440.84s user 7.14s system 97% cpu 7:41.26 total
-our $ID_METHOD=7;       # 874.82s user 20.55s system 94% cpu 15:44.43 total
-our $COLLECTORS=8;      # 484.61s user 11.80s system 95% cpu 8:40.16 total
-our $COLLECTION_DATE=9; # 516.87s user 14.21s system 93% cpu 9:27.06 total
-our $COUNTRY=10;        # 454.66s user 8.69s system 96% cpu 8:01.04 total
-our $SITE=11;           # 466.81s user 9.39s system 94% cpu 8:21.46 total
+our $SPECIES_ID=1;
+our $TYPE_SPECIMEN=2;
+our $SEQ_QUALITY=3; 
+our $PUBLIC_VOUCHER=4;
+our $HAS_IMAGE=5;
+our $IDENTIFIER=6;
+our $ID_METHOD=7;
+our $COLLECTORS=8;
+our $COLLECTION_DATE=9;
+our $COUNTRY=10;
+our $SITE=11;
 our $REGION=12;
 our $SECTOR=13;
-our $COORD=14;          # 451.98s user 7.73s system 96% cpu 7:55.33 total
+our $COORD=14;
 our $INSTITUTION=15;
 our $MUSEUM_ID=16;
 

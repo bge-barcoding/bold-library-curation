@@ -27,30 +27,28 @@ WITH PivotedCriteria AS (
     GROUP BY
         bc.recordid
 )
-
 -- Main query to select from bold and join on pivoted criteria AND BAGS grades
 SELECT
     b.*,
-    h.haplotype_name,
     pc.SPECIES_ID,
     pc.TYPE_SPECIMEN,
     pc.SEQ_QUALITY,
     pc.HAS_IMAGE,
-    pc.COLLECTORS,
+    pc.COLLECTORS AS HAS_COLLECTORS,
     pc.COLLECTION_DATE,
-    pc.COUNTRY,
-    pc.REGION,
-    pc.SECTOR,
-    pc.SITE,
-    pc.COORD,
+    pc.COUNTRY AS HAS_COUNTRY,
+    pc.REGION AS HAS_REGION,
+    pc.SECTOR AS HAS_SECTOR,
+    pc.SITE AS HAS_SITE,
+    pc.COORD AS HAS_COORD,
     pc.IDENTIFIER,
     pc.ID_METHOD,
     pc.INSTITUTION,
     pc.PUBLIC_VOUCHER,
     pc.MUSEUM_ID,
-    pc.HAPLOTYPE_ID,
+    bh.haplotype_id,
     pc.sumscore,
-    bags.bags_grade AS BAGS,  -- Add BAGS grade column
+    bags.bags_grade,
     CASE
         WHEN pc.SPECIES_ID = 1 AND pc.TYPE_SPECIMEN = 1 THEN 1
         WHEN pc.SPECIES_ID = 1 AND pc.SEQ_QUALITY = 1 AND pc.HAS_IMAGE = 1 AND pc.COLLECTORS = 1 AND pc.COLLECTION_DATE = 1 AND pc.COUNTRY = 1 AND (pc.SITE = 1 OR pc.SECTOR = 1 OR pc.REGION = 1 OR pc.COORD = 1) AND pc.IDENTIFIER = 1 AND pc.ID_METHOD = 1 AND (pc.INSTITUTION = 1 OR pc.PUBLIC_VOUCHER = 1 OR pc.MUSEUM_ID = 1) THEN 2
@@ -67,6 +65,4 @@ LEFT JOIN
 LEFT JOIN
     bags ON b.taxonid = bags.taxonid
 LEFT JOIN
-    bold_haplotypes bh ON b.recordid = bh.recordid
-LEFT JOIN
-    haplotypes h ON bh.haplotype_id = h.haplotype_id;
+    bold_haplotypes bh ON b.recordid = bh.recordid;

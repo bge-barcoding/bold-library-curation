@@ -582,8 +582,7 @@ rule HAPLOTYPE_ID:
         db=get_db_file(),
         taxonomy_ok=get_taxonomy_dependency()
     output:
-        tsv=f"{get_results_dir()}/assessed_HAPLOTYPE_ID.tsv",
-        haplotypes_ok=f"{get_results_dir()}/haplotypes_assigned.ok"
+        tsv=f"{get_results_dir()}/assessed_HAPLOTYPE_ID.tsv"
     params:
         log_level=config['LOG_LEVEL'],
         libs=config["LIBS"]
@@ -595,9 +594,6 @@ rule HAPLOTYPE_ID:
             --db {input.db} \
             --log {params.log_level} \
             2> {log} > {output.tsv}
-        
-        echo "Haplotype analysis completed on $(date)" >> {log}
-        touch {output.haplotypes_ok}
         """
 
 # PHASE 4: BAGS ASSESSMENT AND OPTIMIZATION
@@ -788,7 +784,7 @@ INHERIT
 # ===================================
 
 rule concatenate:
-    """Combine all individual criteria assessment results into single file"""
+    """Combine all individual criteria assessment results into single file (excluding haplotypes)"""
     input:
         collection_date = rules.COLLECTION_DATE.output.tsv,
         collectors = rules.COLLECTORS.output.tsv,
@@ -805,8 +801,7 @@ rule concatenate:
         sector = rules.SECTOR.output.tsv,
         species_id = rules.SPECIES_ID.output.tsv,
         type_specimen = rules.TYPE_SPECIMEN.output.tsv,
-        has_image = rules.HAS_IMAGE.output.tsv,
-        haplotype_id = rules.HAPLOTYPE_ID.output.tsv
+        has_image = rules.HAS_IMAGE.output.tsv
     output:
         concat=f"{get_results_dir()}/CONCATENATED.tsv"
     shell:
@@ -828,7 +823,6 @@ rule concatenate:
             {input.species_id} \
             {input.type_specimen} \
             {input.has_image} \
-            {input.haplotype_id} \
             > {output.concat}
         """
 
@@ -837,8 +831,7 @@ rule import_concatenated:
     input:
         concat=f"{get_results_dir()}/CONCATENATED.tsv",
         db=get_db_file(),
-        subspecies_ok=f"{get_results_dir()}/subspecies_bags_inherited.ok",
-        haplotypes_ok=f"{get_results_dir()}/haplotypes_assigned.ok"
+        subspecies_ok=f"{get_results_dir()}/subspecies_bags_inherited.ok"
     output:
         f"{get_results_dir()}/concatenated_imported.ok"
     conda: "envs/sqlite.yaml"
@@ -853,11 +846,34 @@ IMPORT
 touch {output}
         """
 
+rule import_haplotypes:
+    """Import haplotype data into specialized haplotype tables"""
+    input:
+        haplotype_tsv=rules.HAPLOTYPE_ID.output.tsv,
+        db=get_db_file(),
+        concatenated_ok=f"{get_results_dir()}/concatenated_imported.ok"
+    output:
+        f"{get_results_dir()}/haplotypes_imported.ok"
+    params:
+        log_level=config['LOG_LEVEL'],
+        libs=config["LIBS"]
+    conda: "envs/assess_criteria.yaml"
+    log: f"{get_log_dir()}/import_haplotypes.log"
+    shell:
+        """
+        perl -I{params.libs} workflow/scripts/load_haplotypes.pl \
+            --db {input.db} \
+            --tsv {input.haplotype_tsv} \
+            --log {params.log_level} \
+            2> {log} && touch {output}
+        """
+
 rule output_filtered_data:
     """Generate final scored and ranked output with all assessments combined"""
     input:
         db=get_db_file(),
-        import_ok=f"{get_results_dir()}/concatenated_imported.ok"
+        import_ok=f"{get_results_dir()}/concatenated_imported.ok",
+        haplotypes_ok=f"{get_results_dir()}/haplotypes_imported.ok"
     output:
         f"{get_results_dir()}/result_output.tsv"
     conda: "envs/sqlite.yaml"
@@ -887,9 +903,8 @@ rule split_families:
     params:
         threshold=config.get("FAMILY_SIZE_THRESHOLD", 10000),
         output_dir=f"{get_results_dir()}/family_databases",
-        script_path="workflow/scripts/bold_family_splitter.js"
+        script_path="workflow/scripts/bold_family_splitter.py"
     log: f"{get_log_dir()}/split_families.log"
-    conda: "envs/family_splitter.yaml"
     shell:
         """
         echo "Starting family database splitting..." > {log}
@@ -899,13 +914,13 @@ rule split_families:
         echo "Output directory: {params.output_dir}" >> {log}
         echo "" >> {log}
         
-        # Run the family splitter (try TSV first, fallback to DB)
+        # Run the Python family splitter (try TSV first, fallback to DB)
         if [ -f "{input.result_tsv}" ] && [ -s "{input.result_tsv}" ]; then
             echo "Using TSV input: {input.result_tsv}" >> {log}
-            node {params.script_path} "{input.result_tsv}" "{params.output_dir}" {params.threshold} 2>> {log}
+            python {params.script_path} "{input.result_tsv}" --output "{params.output_dir}" --threshold {params.threshold} 2>> {log}
         elif [ -f "{input.db}" ]; then
             echo "Using database input: {input.db}" >> {log}
-            node {params.script_path} "{input.db}" "{params.output_dir}" {params.threshold} 2>> {log}
+            python {params.script_path} "{input.db}" --output "{params.output_dir}" --threshold {params.threshold} 2>> {log}
         else
             echo "ERROR: No valid input found" >> {log}
             exit 1
@@ -944,6 +959,9 @@ rule create_final_summary:
         split_report=f"{get_results_dir()}/family_databases/splitting_report.txt"
     output:
         summary=f"{get_results_dir()}/pipeline_summary.txt"
+    params:
+        db_file=get_db_file(),
+        results_dir=get_results_dir()
     shell:
         """
         echo "BOLD Library Curation Pipeline - Final Summary" > {output.summary}
@@ -953,7 +971,7 @@ rule create_final_summary:
         
         # Main results
         echo "Main Results:" >> {output.summary}
-        echo "- Processed database: {config[DB_FILE]}" >> {output.summary}
+        echo "- Processed database: {params.db_file}" >> {output.summary}
         echo "- Final scored data: {input.result_tsv}" >> {output.summary}
         if [ -f "{input.result_tsv}" ]; then
             TOTAL_RECORDS=$(tail -n +2 {input.result_tsv} | wc -l)
@@ -970,16 +988,16 @@ rule create_final_summary:
         
         # File structure
         echo "Output Structure:" >> {output.summary}
-        echo "{get_results_dir()}/" >> {output.summary}
+        echo "{params.results_dir}/" >> {output.summary}
         echo "├── bold.db                    # Main database" >> {output.summary}
         echo "├── result_output.tsv          # Final scored data" >> {output.summary}
         echo "├── assessed_*.tsv             # Individual criteria assessments" >> {output.summary}
         echo "└── family_databases/          # Split by taxonomy" >> {output.summary}
         
-        DB_COUNT=$(find {get_results_dir()}/family_databases -name "*.db" 2>/dev/null | wc -l)
+        DB_COUNT=$(find {params.results_dir}/family_databases -name "*.db" 2>/dev/null | wc -l)
         echo "    ├── $DB_COUNT family/subfamily databases" >> {output.summary}
         
-        PHYLA_COUNT=$(find {get_results_dir()}/family_databases -maxdepth 1 -type d 2>/dev/null | wc -l)
+        PHYLA_COUNT=$(find {params.results_dir}/family_databases -maxdepth 1 -type d 2>/dev/null | wc -l)
         echo "    └── organized in $PHYLA_COUNT phyla" >> {output.summary}
         
         echo "" >> {output.summary}
