@@ -18,7 +18,8 @@ WITH PivotedCriteria AS (
         MAX(CASE WHEN c.name = 'ID_METHOD' THEN bc.status ELSE NULL END) AS ID_METHOD,
         MAX(CASE WHEN c.name = 'INSTITUTION' THEN bc.status ELSE NULL END) AS INSTITUTION,
         MAX(CASE WHEN c.name = 'PUBLIC_VOUCHER' THEN bc.status ELSE NULL END) AS PUBLIC_VOUCHER,
-        MAX(CASE WHEN c.name = 'MUSEUM_ID' THEN bc.status ELSE NULL END) AS MUSEUM_ID
+        MAX(CASE WHEN c.name = 'MUSEUM_ID' THEN bc.status ELSE NULL END) AS MUSEUM_ID,
+        MAX(CASE WHEN c.name = 'HAPLOTYPE_ID' THEN bc.status ELSE NULL END) AS HAPLOTYPE_ID
     FROM
         bold_criteria bc
     JOIN
@@ -30,6 +31,7 @@ WITH PivotedCriteria AS (
 -- Main query to select from bold and join on pivoted criteria AND BAGS grades
 SELECT
     b.*,
+    h.haplotype_name,
     pc.SPECIES_ID,
     pc.TYPE_SPECIMEN,
     pc.SEQ_QUALITY,
@@ -46,6 +48,7 @@ SELECT
     pc.INSTITUTION,
     pc.PUBLIC_VOUCHER,
     pc.MUSEUM_ID,
+    pc.HAPLOTYPE_ID,
     pc.sumscore,
     bags.bags_grade AS BAGS,  -- Add BAGS grade column
     CASE
@@ -62,4 +65,8 @@ FROM
 LEFT JOIN
     PivotedCriteria pc ON b.recordid = pc.recordid
 LEFT JOIN
-    bags ON b.taxonid = bags.taxonid;
+    bags ON b.taxonid = bags.taxonid
+LEFT JOIN
+    bold_haplotypes bh ON b.recordid = bh.recordid
+LEFT JOIN
+    haplotypes h ON bh.haplotype_id = h.haplotype_id;

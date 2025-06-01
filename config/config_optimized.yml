@@ -26,3 +26,7 @@ FILTER_COUNTRY_LIST: "resources/countries/test_odonata.txt"
 FILTER_BINS: true  # Include BIN_URI sharing true / false
 MARKER: "COI-5P"  # Specify marker code (e.g., "COI-5P") to filter by marker_code field, or null to disable marker filtering
 PRESCORING_FILTERED_OUTPUT: "results_optimized/test_odonata_large_filtered.tsv"
+
+# Family splitting configuration
+FAMILY_SIZE_THRESHOLD: 10000  # Split families larger than this by subfamily
+FAMILY_OUTPUT_DIR: "results/family_databases"  # Output directory for split databases

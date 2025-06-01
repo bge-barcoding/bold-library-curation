@@ -7,8 +7,8 @@ use BCDM::IO;
 use BCDM::ORM;
 use BCDM::BAGS;
 
-# Simplified BAGS analysis that outputs only essential columns
-# No taxonomic rank columns to avoid alignment issues
+# Fixed BAGS analysis that ensures proper column alignment
+# by always outputting order, family, genus in correct positions
 
 my $endpoint = 'https://boldsystems.org/index.php/Public_BarcodeCluster?clusteruri=';
 
@@ -55,8 +55,8 @@ my $count = 0;
 my $start_time = time();
 my %grades = ();
 
-# Output simplified header to STDOUT
-print join("\t", qw[taxonid BAGS BIN sharers]), "\n";
+# Output header to STDOUT
+print join("\t", qw[taxonid order family genus species BAGS BIN sharers]), "\n";
 
 my $iterator = $species_rs->search({}, { order_by => 'taxonid' });
 while (my $taxon = $iterator->next) {
@@ -65,17 +65,34 @@ while (my $taxon = $iterator->next) {
     my $grade = $bags->grade;
     $grades{$grade}++;
     
-    # Simple output - just the essential columns
+    # FIXED: Build taxonomy levels explicitly with fallbacks
+    my @lineage = $taxon->lineage;
+    my %lineage_by_level = ();
+    
+    # Extract each level into hash for reliable lookup
+    for my $level_taxon (@lineage) {
+        $lineage_by_level{$level_taxon->level} = $level_taxon->name;
+    }
+    
+    # Ensure we always have order, family, genus in correct positions
+    # Use empty string as fallback for missing levels
+    my $order_name  = $lineage_by_level{'order'}  || '';
+    my $family_name = $lineage_by_level{'family'} || '';
+    my $genus_name  = $lineage_by_level{'genus'}  || '';
+    
+    my @row = (
+        $taxon->taxonid,
+        $order_name,
+        $family_name,
+        $genus_name,
+        $taxon->name,
+        $grade
+    );
+    
     for my $bin (@{ $bags->bins }) {
         next unless defined $bin && $bin =~ /^BOLD:/;
         my @sharers = $bags->taxa_sharing_bin($bin);
-        
-        print join("\t", 
-            $taxon->taxonid,
-            $grade,
-            $endpoint . $bin,
-            join(',', @sharers)
-        ), "\n";
+        print join("\t", @row, $endpoint . $bin, join(',', @sharers)), "\n";
     }
     
     $count++;

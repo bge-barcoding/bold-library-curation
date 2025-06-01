@@ -14,3 +14,4 @@
 14	COORD	Specimen has known collection coordinates
 15	INSTITUTION	Specimen is held in a public institution
 16	MUSEUM_ID	Specimen is held in a named museum
+17	HAPLOTYPE_ID	Records are assigned unique haplotype identifiers within their BIN or species group based on sequence similarity analysis
