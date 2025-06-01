@@ -187,8 +187,27 @@ CREATE TABLE IF NOT EXISTS "bold_haplotypes" (
     CONSTRAINT unique_record_haplotype UNIQUE (recordid)
 );
 
+-- Table to store BAGS (Barcode, Audit & Grade System) assessments for species
+-- Each species receives a grade based on various quality criteria and BIN analysis
+CREATE TABLE IF NOT EXISTS "bags" (
+    "taxonid" INTEGER NOT NULL,             -- Foreign key to taxa table
+    "bags_grade" TEXT NOT NULL,             -- BAGS grade: A, B, C, D, or F
+    "bin_uri" TEXT,                         -- BIN identifier (may be null)
+    "sharers" TEXT,                         -- Information about BIN sharing
+    
+    FOREIGN KEY(taxonid) REFERENCES taxa(taxonid),
+    
+    -- Ensure unique BAGS assessment per taxon
+    CONSTRAINT unique_bags_per_taxon UNIQUE (taxonid)
+);
+
 -- Indexes for haplotype analysis performance
 CREATE INDEX IF NOT EXISTS idx_haplotypes_bin_uri ON haplotypes(bin_uri);
 CREATE INDEX IF NOT EXISTS idx_haplotypes_species ON haplotypes(species_name);
 CREATE INDEX IF NOT EXISTS idx_bold_haplotypes_recordid ON bold_haplotypes(recordid);
 CREATE INDEX IF NOT EXISTS idx_bold_haplotypes_haplotype ON bold_haplotypes(haplotype_id);
+
+-- Indexes for BAGS analysis performance
+CREATE INDEX IF NOT EXISTS idx_bags_taxonid ON bags(taxonid);
+CREATE INDEX IF NOT EXISTS idx_bags_grade ON bags(bags_grade);
+CREATE INDEX IF NOT EXISTS idx_bags_bin_uri ON bags(bin_uri);

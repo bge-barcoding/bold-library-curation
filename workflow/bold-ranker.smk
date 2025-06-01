@@ -5,21 +5,57 @@
 
 # Configuration and helper functions
 # ----------------------------------
+import os
+
 configfile: "config/config_optimized.yml"
+
+def get_results_dir():
+    """Return the configured results directory with default fallback"""
+    return config.get("RESULTS_DIR", "results")
+
+def get_db_file():
+    """Return the database file path using the configured results directory"""
+    results_dir = get_results_dir()
+    return f"{results_dir}/bold.db"
+
+def get_db_file_indexed():
+    """Return the indexed database marker file path using the configured results directory"""
+    results_dir = get_results_dir()
+    return f"{results_dir}/bold_indexed.ok"
+
+def get_prescoring_filtered_output():
+    """Return the prescoring filtered output path using the configured results directory"""
+    if config.get("ENABLE_PRESCORING_FILTER", False):
+        results_dir = get_results_dir()
+        # Config now contains just the filename, construct full path in results directory
+        filename = config.get("PRESCORING_FILTERED_OUTPUT", "prescoring_filtered.tsv")
+        return f"{results_dir}/{filename}"
+    return f"{get_results_dir()}/prescoring_filter_disabled.tsv"  # Return dummy path when disabled
 
 def get_input_file():
     """Return the appropriate input file based on whether filtering is enabled"""
     if config.get("ENABLE_PRESCORING_FILTER", False):
-        return config["PRESCORING_FILTERED_OUTPUT"]
+        return get_prescoring_filtered_output()
     else:
         return config["BOLD_TSV"]
 
+def get_log_dir():
+    """Return the configured log directory"""
+    return config.get("LOG_DIR", "logs")
+
 def get_taxonomy_dependency():
     """Return appropriate dependency based on target list usage"""
+    results_dir = get_results_dir()
     if config.get("USE_TARGET_LIST", False):
-        return "results/target_loaded.ok"
+        return f"{results_dir}/target_loaded.ok"
     else:
-        return "results/taxonomy_loaded.ok"
+        return f"{results_dir}/taxonomy_loaded.ok"
+
+# Ensure configured directories exist
+# ----------------------------------
+os.makedirs(get_results_dir(), exist_ok=True)
+os.makedirs(get_log_dir(), exist_ok=True)
+os.makedirs(f"{get_results_dir()}/family_databases", exist_ok=True)
 
 # PHASE 1: DATA PREPARATION AND FILTERING
 # =======================================
@@ -31,19 +67,18 @@ if config.get("ENABLE_PRESCORING_FILTER", False):
         input:
             bold_tsv=config["BOLD_TSV"]
         output:
-            filtered_file=config["PRESCORING_FILTERED_OUTPUT"],
-            marker="results/prescoring_filter.ok"
+            filtered_file=get_prescoring_filtered_output(),
+            marker=f"{get_results_dir()}/prescoring_filter.ok"
         params:
             taxa_arg=lambda wildcards: f"--taxa-list {config['FILTER_TAXA_LIST']}" if config.get("FILTER_TAXA", False) and config.get("FILTER_TAXA_LIST") else "",
             country_arg=lambda wildcards: f"--country-list {config['FILTER_COUNTRY_LIST']}" if config.get("FILTER_COUNTRIES", False) and config.get("FILTER_COUNTRY_LIST") else "",
             marker_arg=lambda wildcards: f"--marker {config['MARKER']}" if config.get("MARKER") else "",
             bin_arg="--enable-bin-sharing" if config.get("FILTER_BINS", False) else "",
             log_level=config['LOG_LEVEL']
-        log: "logs/prescoring_filter.log"
+        log: f"{get_log_dir()}/prescoring_filter.log"
         conda: "envs/prescoring_filter.yaml"
         shell:
             """
-            mkdir -p $(dirname {output.filtered_file})
             python workflow/scripts/prescoring_filter.py \
                 --input {input.bold_tsv} \
                 --output {output.filtered_file} \
@@ -58,10 +93,14 @@ if config.get("ENABLE_PRESCORING_FILTER", False):
 else:
     rule skip_prescoring_filter:
         """Create marker when prescoring filter is disabled"""
+        input:
+            original_file=config["BOLD_TSV"]
         output:
-            marker="results/prescoring_filter.ok"
+            marker=f"{get_results_dir()}/prescoring_filter.ok"
         shell:
-            "echo 'Prescoring filter disabled - using original file' > {output.marker}"
+            """
+            echo 'Prescoring filter disabled - using original file: {input.original_file}' > {output.marker}
+            """
 
 # PHASE 2: DATABASE CREATION AND SETUP
 # ====================================
@@ -71,12 +110,12 @@ rule create_load_db:
     input:
         schema=config["SCHEMA"],
         tsv_file=get_input_file(),
-        prescoring_ok="results/prescoring_filter.ok"
+        prescoring_ok=f"{get_results_dir()}/prescoring_filter.ok"
     output: 
-        config["DB_FILE"]
+        get_db_file()
     params: 
         log_level=config['LOG_LEVEL']
-    log: "logs/create_load_db.log"
+    log: f"{get_log_dir()}/create_load_db.log"
     conda: "envs/create_load_db.yaml"
     shell:
         """
@@ -92,10 +131,10 @@ rule load_criteria:
     """Load assessment criteria definitions into database"""
     input:
         criteria="resources/criteria.tsv",
-        db=config["DB_FILE"]
+        db=get_db_file()
     output:
-        "results/criteria_loaded.ok"
-    log: "logs/load_criteria.log"
+        f"{get_results_dir()}/criteria_loaded.ok"
+    log: f"{get_log_dir()}/load_criteria.log"
     conda: "envs/sqlite.yaml"
     shell:
         """
@@ -111,11 +150,11 @@ rule apply_indexes:
     """Apply database indexes to optimize query performance"""
     input:
         indexes=config["INDEXES"],
-        db=config["DB_FILE"],
-        criteria_ok="results/criteria_loaded.ok"
+        db=get_db_file(),
+        criteria_ok=f"{get_results_dir()}/criteria_loaded.ok"
     output: 
-        config["DB_FILE_INDEXED"]
-    log: "logs/apply_indexes.log"
+        get_db_file_indexed()
+    log: f"{get_log_dir()}/apply_indexes.log"
     conda: "envs/sqlite.yaml"
     shell:
         """
@@ -125,15 +164,15 @@ rule apply_indexes:
 rule load_taxonomy:
     """Load NCBI taxonomy data into database using optimized chunked loading"""
     input:
-        db=config["DB_FILE"],
-        index_ok=config["DB_FILE_INDEXED"]
+        db=get_db_file(),
+        index_ok=get_db_file_indexed()
     output:
-        "results/taxonomy_loaded.ok"
+        f"{get_results_dir()}/taxonomy_loaded.ok"
     params:
         log_level=config['LOG_LEVEL'],
         libs=config["LIBS"],
         chunk_size=config.get("TAXONOMY_CHUNK_SIZE", 10000)
-    log: "logs/load_taxonomy.log"
+    log: f"{get_log_dir()}/load_taxonomy.log"
     conda: "envs/load_taxonomy.yaml"
     shell:
         """
@@ -149,18 +188,18 @@ if config.get("USE_TARGET_LIST", False):
     rule import_target_list:
         """Import specific target taxa list for focused assessment"""
         input:
-            db=config["DB_FILE"],
-            taxonomy_ok="results/taxonomy_loaded.ok",
+            db=get_db_file(),
+            taxonomy_ok=f"{get_results_dir()}/taxonomy_loaded.ok",
             targetlist=config["TARGET_LIST"]
         output:
-            "results/target_loaded.ok"
+            f"{get_results_dir()}/target_loaded.ok"
         params:
             log_level=config['LOG_LEVEL'],
             libs=config["LIBS"],
             project=config["PROJECT_NAME"],
             taxon=config["TAXON_LEVEL"],
             kingdom=config["KINGDOM"]
-        log: "logs/load_target_list.log"
+        log: f"{get_log_dir()}/load_target_list.log"
         conda: "envs/load_taxonomy.yaml"
         shell:
             """
@@ -177,9 +216,9 @@ else:
     rule skip_target_list:
         """Pass-through rule when target list is not used"""
         input:
-            "results/taxonomy_loaded.ok"
+            f"{get_results_dir()}/taxonomy_loaded.ok"
         output:
-            "results/target_loaded.ok"
+            f"{get_results_dir()}/target_loaded.ok"
         shell:
             "cp {input} {output}"
 
@@ -190,15 +229,15 @@ else:
 rule COLLECTION_DATE:
     """Assess specimen collection date completeness and validity"""
     input:
-        db=config["DB_FILE"],
+        db=get_db_file(),
         taxonomy_ok=get_taxonomy_dependency()
     params:
         log_level=config['LOG_LEVEL'],
         libs=config["LIBS"],
         criterion="COLLECTION_DATE"
     output:
-        tsv="results/assessed_COLLECTION_DATE.tsv"
-    log: "logs/assess_COLLECTION_DATE.log"
+        tsv=f"{get_results_dir()}/assessed_COLLECTION_DATE.tsv"
+    log: f"{get_log_dir()}/assess_COLLECTION_DATE.log"
     conda: "envs/assess_criteria.yaml"
     shell:
         """
@@ -212,15 +251,15 @@ rule COLLECTION_DATE:
 rule COLLECTORS:
     """Assess collector information completeness"""
     input:
-        db=config["DB_FILE"],
+        db=get_db_file(),
         taxonomy_ok=get_taxonomy_dependency()
     params:
         log_level=config['LOG_LEVEL'],
         libs=config["LIBS"],
         criterion="COLLECTORS"
     output:
-        tsv="results/assessed_COLLECTORS.tsv"
-    log: "logs/assess_COLLECTORS.log"
+        tsv=f"{get_results_dir()}/assessed_COLLECTORS.tsv"
+    log: f"{get_log_dir()}/assess_COLLECTORS.log"
     conda: "envs/assess_criteria.yaml"
     shell:
         """
@@ -234,15 +273,15 @@ rule COLLECTORS:
 rule COUNTRY:
     """Assess country information completeness and standardization"""
     input:
-        db=config["DB_FILE"],
+        db=get_db_file(),
         taxonomy_ok=get_taxonomy_dependency()
     params:
         log_level=config['LOG_LEVEL'],
         libs=config["LIBS"],
         criterion="COUNTRY"
     output:
-        tsv="results/assessed_COUNTRY.tsv"
-    log: "logs/assess_COUNTRY.log"
+        tsv=f"{get_results_dir()}/assessed_COUNTRY.tsv"
+    log: f"{get_log_dir()}/assess_COUNTRY.log"
     conda: "envs/assess_criteria.yaml"
     shell:
         """
@@ -256,15 +295,15 @@ rule COUNTRY:
 rule ID_METHOD:
     """Assess taxonomic identification method documentation"""
     input:
-        db=config["DB_FILE"],
+        db=get_db_file(),
         taxonomy_ok=get_taxonomy_dependency()
     params:
         log_level=config['LOG_LEVEL'],
         libs=config["LIBS"],
         criterion="ID_METHOD"
     output:
-        tsv="results/assessed_ID_METHOD.tsv"
-    log: "logs/assess_ID_METHOD.log"
+        tsv=f"{get_results_dir()}/assessed_ID_METHOD.tsv"
+    log: f"{get_log_dir()}/assess_ID_METHOD.log"
     conda: "envs/assess_criteria.yaml"
     shell:
         """
@@ -278,15 +317,15 @@ rule ID_METHOD:
 rule IDENTIFIER:
     """Assess taxonomic identifier information completeness"""
     input:
-        db=config["DB_FILE"],
+        db=get_db_file(),
         taxonomy_ok=get_taxonomy_dependency()
     params:
         log_level=config['LOG_LEVEL'],
         libs=config["LIBS"],
         criterion="IDENTIFIER"
     output:
-        tsv="results/assessed_IDENTIFIER.tsv"
-    log: "logs/assess_IDENTIFIER.log"
+        tsv=f"{get_results_dir()}/assessed_IDENTIFIER.tsv"
+    log: f"{get_log_dir()}/assess_IDENTIFIER.log"
     conda: "envs/assess_criteria.yaml"
     shell:
         """
@@ -300,15 +339,15 @@ rule IDENTIFIER:
 rule INSTITUTION:
     """Assess institutional affiliation completeness"""
     input:
-        db=config["DB_FILE"],
+        db=get_db_file(),
         taxonomy_ok=get_taxonomy_dependency()
     params:
         log_level=config['LOG_LEVEL'],
         libs=config["LIBS"],
         criterion="INSTITUTION"
     output:
-        tsv="results/assessed_INSTITUTION.tsv"
-    log: "logs/assess_INSTITUTION.log"
+        tsv=f"{get_results_dir()}/assessed_INSTITUTION.tsv"
+    log: f"{get_log_dir()}/assess_INSTITUTION.log"
     conda: "envs/assess_criteria.yaml"
     shell:
         """
@@ -322,15 +361,15 @@ rule INSTITUTION:
 rule COORD:
     """Assess geographic coordinate completeness and precision"""
     input:
-        db=config["DB_FILE"],
+        db=get_db_file(),
         taxonomy_ok=get_taxonomy_dependency()
     params:
         log_level=config['LOG_LEVEL'],
         libs=config["LIBS"],
         criterion="COORD"
     output:
-        tsv="results/assessed_COORD.tsv"
-    log: "logs/assess_COORD.log"
+        tsv=f"{get_results_dir()}/assessed_COORD.tsv"
+    log: f"{get_log_dir()}/assess_COORD.log"
     conda: "envs/assess_criteria.yaml"
     shell:
         """
@@ -344,15 +383,15 @@ rule COORD:
 rule MUSEUM_ID:
     """Assess museum/institution specimen ID completeness"""
     input:
-        db=config["DB_FILE"],
+        db=get_db_file(),
         taxonomy_ok=get_taxonomy_dependency()
     params:
         log_level=config['LOG_LEVEL'],
         libs=config["LIBS"],
         criterion="MUSEUM_ID"
     output:
-        tsv="results/assessed_MUSEUM_ID.tsv"
-    log: "logs/assess_MUSEUM_ID.log"
+        tsv=f"{get_results_dir()}/assessed_MUSEUM_ID.tsv"
+    log: f"{get_log_dir()}/assess_MUSEUM_ID.log"
     conda: "envs/assess_criteria.yaml"
     shell:
         """
@@ -366,15 +405,15 @@ rule MUSEUM_ID:
 rule PUBLIC_VOUCHER:
     """Assess public voucher specimen availability"""
     input:
-        db=config["DB_FILE"],
+        db=get_db_file(),
         taxonomy_ok=get_taxonomy_dependency()
     params:
         log_level=config['LOG_LEVEL'],
         libs=config["LIBS"],
         criterion="PUBLIC_VOUCHER"
     output:
-        tsv="results/assessed_PUBLIC_VOUCHER.tsv"
-    log: "logs/assess_PUBLIC_VOUCHER.log"
+        tsv=f"{get_results_dir()}/assessed_PUBLIC_VOUCHER.tsv"
+    log: f"{get_log_dir()}/assess_PUBLIC_VOUCHER.log"
     conda: "envs/assess_criteria.yaml"
     shell:
         """
@@ -388,15 +427,15 @@ rule PUBLIC_VOUCHER:
 rule SEQ_QUALITY:
     """Assess DNA sequence quality metrics"""
     input:
-        db=config["DB_FILE"],
+        db=get_db_file(),
         taxonomy_ok=get_taxonomy_dependency()
     params:
         log_level=config['LOG_LEVEL'],
         libs=config["LIBS"],
         criterion="SEQ_QUALITY"
     output:
-        tsv="results/assessed_SEQ_QUALITY.tsv"
-    log: "logs/assess_SEQ_QUALITY.log"
+        tsv=f"{get_results_dir()}/assessed_SEQ_QUALITY.tsv"
+    log: f"{get_log_dir()}/assess_SEQ_QUALITY.log"
     conda: "envs/assess_criteria.yaml"
     shell:
         """
@@ -410,15 +449,15 @@ rule SEQ_QUALITY:
 rule SITE:
     """Assess collection site information completeness"""
     input:
-        db=config["DB_FILE"],
+        db=get_db_file(),
         taxonomy_ok=get_taxonomy_dependency()
     params:
         log_level=config['LOG_LEVEL'],
         libs=config["LIBS"],
         criterion="SITE"
     output:
-        tsv="results/assessed_SITE.tsv"
-    log: "logs/assess_SITE.log"
+        tsv=f"{get_results_dir()}/assessed_SITE.tsv"
+    log: f"{get_log_dir()}/assess_SITE.log"
     conda: "envs/assess_criteria.yaml"
     shell:
         """
@@ -432,15 +471,15 @@ rule SITE:
 rule REGION:
     """Assess geographic region information completeness"""
     input:
-        db=config["DB_FILE"],
+        db=get_db_file(),
         taxonomy_ok=get_taxonomy_dependency()
     params:
         log_level=config['LOG_LEVEL'],
         libs=config["LIBS"],
         criterion="REGION"
     output:
-        tsv="results/assessed_REGION.tsv"
-    log: "logs/assess_REGION.log"
+        tsv=f"{get_results_dir()}/assessed_REGION.tsv"
+    log: f"{get_log_dir()}/assess_REGION.log"
     conda: "envs/assess_criteria.yaml"
     shell:
         """
@@ -454,15 +493,15 @@ rule REGION:
 rule SECTOR:
     """Assess geographic sector information completeness"""
     input:
-        db=config["DB_FILE"],
+        db=get_db_file(),
         taxonomy_ok=get_taxonomy_dependency()
     params:
         log_level=config['LOG_LEVEL'],
         libs=config["LIBS"],
         criterion="SECTOR"
     output:
-        tsv="results/assessed_SECTOR.tsv"
-    log: "logs/assess_SECTOR.log"
+        tsv=f"{get_results_dir()}/assessed_SECTOR.tsv"
+    log: f"{get_log_dir()}/assess_SECTOR.log"
     conda: "envs/assess_criteria.yaml"
     shell:
         """
@@ -476,15 +515,15 @@ rule SECTOR:
 rule SPECIES_ID:
     """Assess species identification completeness and accuracy"""
     input:
-        db=config["DB_FILE"],
+        db=get_db_file(),
         taxonomy_ok=get_taxonomy_dependency()
     params:
         log_level=config['LOG_LEVEL'],
         libs=config["LIBS"],
         criterion="SPECIES_ID"
     output:
-        tsv="results/assessed_SPECIES_ID.tsv"
-    log: "logs/assess_SPECIES_ID.log"
+        tsv=f"{get_results_dir()}/assessed_SPECIES_ID.tsv"
+    log: f"{get_log_dir()}/assess_SPECIES_ID.log"
     conda: "envs/assess_criteria.yaml"
     shell:
         """
@@ -498,15 +537,15 @@ rule SPECIES_ID:
 rule TYPE_SPECIMEN:
     """Assess type specimen designation and documentation"""
     input:
-        db=config["DB_FILE"],
+        db=get_db_file(),
         taxonomy_ok=get_taxonomy_dependency()
     params:
         log_level=config['LOG_LEVEL'],
         libs=config["LIBS"],
         criterion="TYPE_SPECIMEN"
     output:
-        tsv="results/assessed_TYPE_SPECIMEN.tsv"
-    log: "logs/assess_TYPE_SPECIMEN.log"
+        tsv=f"{get_results_dir()}/assessed_TYPE_SPECIMEN.tsv"
+    log: f"{get_log_dir()}/assess_TYPE_SPECIMEN.log"
     conda: "envs/assess_criteria.yaml"
     shell:
         """
@@ -520,14 +559,14 @@ rule TYPE_SPECIMEN:
 rule HAS_IMAGE:
     """Assess specimen image availability"""
     input:
-        db=config["DB_FILE"],
+        db=get_db_file(),
         taxonomy_ok=get_taxonomy_dependency()
     params:
         log_level=config['LOG_LEVEL'],
         libs=config["LIBS"]
     output:
-        tsv="results/assessed_HAS_IMAGE.tsv"
-    log: "logs/assess_HAS_IMAGE.log"
+        tsv=f"{get_results_dir()}/assessed_HAS_IMAGE.tsv"
+    log: f"{get_log_dir()}/assess_HAS_IMAGE.log"
     conda: "envs/assess_images.yaml"
     shell:
         """
@@ -540,15 +579,15 @@ rule HAS_IMAGE:
 rule HAPLOTYPE_ID:
     """Identify unique haplotypes within each BIN and species group"""
     input:
-        db=config["DB_FILE"],
+        db=get_db_file(),
         taxonomy_ok=get_taxonomy_dependency()
     output:
-        tsv="results/assessed_HAPLOTYPE_ID.tsv",
-        haplotypes_ok="results/haplotypes_assigned.ok"
+        tsv=f"{get_results_dir()}/assessed_HAPLOTYPE_ID.tsv",
+        haplotypes_ok=f"{get_results_dir()}/haplotypes_assigned.ok"
     params:
         log_level=config['LOG_LEVEL'],
         libs=config["LIBS"]
-    log: "logs/assess_HAPLOTYPE_ID.log"
+    log: f"{get_log_dir()}/assess_HAPLOTYPE_ID.log"
     conda: "envs/haplotype_analysis.yaml"
     shell:
         """
@@ -567,11 +606,11 @@ rule HAPLOTYPE_ID:
 rule optimize_bags_database:
     """Apply BAGS-specific database optimizations for improved performance"""
     input:
-        db=config["DB_FILE"],
+        db=get_db_file(),
         taxonomy_ok=get_taxonomy_dependency()
     output:
-        "results/bags_optimized.ok"
-    log: "logs/optimize_bags_database.log"
+        f"{get_results_dir()}/bags_optimized.ok"
+    log: f"{get_log_dir()}/optimize_bags_database.log"
     conda: "envs/sqlite.yaml"
     shell:
         """
@@ -603,14 +642,14 @@ OPTIMIZE
 # BAGS (species-level assessment) - SIMPLIFIED OUTPUT WITH ESSENTIAL COLUMNS ONLY
 rule BAGS:
     input:
-        db=config["DB_FILE"],
-        bags_optimized="results/bags_optimized.ok"
+        db=get_db_file(),
+        bags_optimized=f"{get_results_dir()}/bags_optimized.ok"
     params:
         log_level=config['LOG_LEVEL'],
         libs=config["LIBS"]
     output:
-        tsv="results/assessed_BAGS.tsv"
-    log: "logs/assess_BAGS.log"
+        tsv=f"{get_results_dir()}/assessed_BAGS.tsv"
+    log: f"{get_log_dir()}/assess_BAGS.log"
     conda: "envs/assess_criteria.yaml"
     shell:
         """
@@ -665,12 +704,12 @@ rule BAGS:
 # Modified rule to import simplified BAGS data into database
 rule import_bags:
     input:
-        bags_tsv="results/assessed_BAGS.tsv",
-        db=config["DB_FILE"]
+        bags_tsv=f"{get_results_dir()}/assessed_BAGS.tsv",
+        db=get_db_file()
     output:
-        "results/bags_imported.ok"
+        f"{get_results_dir()}/bags_imported.ok"
     conda: "envs/sqlite.yaml"
-    log: "logs/import_bags.log"
+    log: f"{get_log_dir()}/import_bags.log"
     shell:
         """
         echo "Importing simplified BAGS data with 4 columns..." > {log}
@@ -678,13 +717,6 @@ rule import_bags:
         echo "" >> {log}
         
         sqlite3 {input.db} 2>> {log} <<BAGS
-CREATE TABLE IF NOT EXISTS bags (
-    taxonid INTEGER,
-    bags_grade TEXT,
-    bin_uri TEXT,
-    sharers TEXT
-);
-
 -- Clear any existing data
 DELETE FROM bags;
 
@@ -714,25 +746,21 @@ BAGS
 rule inherit_subspecies_bags:
     """Inherit BAGS grades for subspecies from their parent species"""
     input:
-        db=config["DB_FILE"],
-        bags_ok="results/bags_imported.ok"
+        db=get_db_file(),
+        bags_ok=f"{get_results_dir()}/bags_imported.ok"
     output:
-        "results/subspecies_bags_inherited.ok"
+        f"{get_results_dir()}/subspecies_bags_inherited.ok"
     conda: "envs/sqlite.yaml"
-    log: "logs/inherit_subspecies_bags.log"
+    log: f"{get_log_dir()}/inherit_subspecies_bags.log"
     shell:
         """
         echo "Inheriting BAGS grades for subspecies from parent species..." > {log}
         
         sqlite3 {input.db} 2>> {log} <<INHERIT
 -- Insert subspecies records with inherited BAGS grades from parent species
-INSERT INTO bags (taxonid, order_name, family_name, genus_name, species_name, bags_grade, bin_uri, sharers)
+INSERT INTO bags (taxonid, bags_grade, bin_uri, sharers)
 SELECT 
     s.taxonid,
-    b.order_name,
-    b.family_name, 
-    b.genus_name,
-    s.name as species_name,
     b.bags_grade,
     b.bin_uri,
     b.sharers
@@ -780,7 +808,7 @@ rule concatenate:
         has_image = rules.HAS_IMAGE.output.tsv,
         haplotype_id = rules.HAPLOTYPE_ID.output.tsv
     output:
-        concat="results/CONCATENATED.tsv"
+        concat=f"{get_results_dir()}/CONCATENATED.tsv"
     shell:
         """
         perl workflow/scripts/concat_tsvs.pl \
@@ -807,14 +835,14 @@ rule concatenate:
 rule import_concatenated:
     """Import combined criteria assessment results into database"""
     input:
-        concat="results/CONCATENATED.tsv",
-        db=config["DB_FILE"],
-        subspecies_ok="results/subspecies_bags_inherited.ok",
-        haplotypes_ok="results/haplotypes_assigned.ok"
+        concat=f"{get_results_dir()}/CONCATENATED.tsv",
+        db=get_db_file(),
+        subspecies_ok=f"{get_results_dir()}/subspecies_bags_inherited.ok",
+        haplotypes_ok=f"{get_results_dir()}/haplotypes_assigned.ok"
     output:
-        "results/concatenated_imported.ok"
+        f"{get_results_dir()}/concatenated_imported.ok"
     conda: "envs/sqlite.yaml"
-    log: "logs/import_concatenated.log"
+    log: f"{get_log_dir()}/import_concatenated.log"
     shell:
         """
 sqlite3 {input.db} 2> {log} <<IMPORT
@@ -828,12 +856,12 @@ touch {output}
 rule output_filtered_data:
     """Generate final scored and ranked output with all assessments combined"""
     input:
-        db=config["DB_FILE"],
-        import_ok="results/concatenated_imported.ok"
+        db=get_db_file(),
+        import_ok=f"{get_results_dir()}/concatenated_imported.ok"
     output:
-        "results/result_output.tsv"
+        f"{get_results_dir()}/result_output.tsv"
     conda: "envs/sqlite.yaml"
-    log: "logs/output_filtered_data.log"
+    log: f"{get_log_dir()}/output_filtered_data.log"
     shell:
         """
         sqlite3 {input.db} 2> {log} <<EOF
@@ -851,16 +879,16 @@ EOF
 rule split_families:
     """Split main database into family-level databases for efficient analysis"""
     input:
-        result_tsv="results/result_output.tsv",
-        db=config["DB_FILE"]
+        result_tsv=f"{get_results_dir()}/result_output.tsv",
+        db=get_db_file()
     output:
-        marker="results/families_split.ok",
-        report="results/family_databases/splitting_report.txt"
+        marker=f"{get_results_dir()}/families_split.ok",
+        report=f"{get_results_dir()}/family_databases/splitting_report.txt"
     params:
         threshold=config.get("FAMILY_SIZE_THRESHOLD", 10000),
-        output_dir="results/family_databases",
+        output_dir=f"{get_results_dir()}/family_databases",
         script_path="workflow/scripts/bold_family_splitter.js"
-    log: "logs/split_families.log"
+    log: f"{get_log_dir()}/split_families.log"
     conda: "envs/family_splitter.yaml"
     shell:
         """
@@ -870,9 +898,6 @@ rule split_families:
         echo "Threshold: {params.threshold}" >> {log}
         echo "Output directory: {params.output_dir}" >> {log}
         echo "" >> {log}
-        
-        # Create output directory
-        mkdir -p {params.output_dir}
         
         # Run the family splitter (try TSV first, fallback to DB)
         if [ -f "{input.result_tsv}" ] && [ -s "{input.result_tsv}" ]; then
@@ -914,11 +939,11 @@ rule split_families:
 rule create_final_summary:
     """Generate comprehensive pipeline execution summary"""
     input:
-        result_tsv="results/result_output.tsv",
-        families_split="results/families_split.ok",
-        split_report="results/family_databases/splitting_report.txt"
+        result_tsv=f"{get_results_dir()}/result_output.tsv",
+        families_split=f"{get_results_dir()}/families_split.ok",
+        split_report=f"{get_results_dir()}/family_databases/splitting_report.txt"
     output:
-        summary="results/pipeline_summary.txt"
+        summary=f"{get_results_dir()}/pipeline_summary.txt"
     shell:
         """
         echo "BOLD Library Curation Pipeline - Final Summary" > {output.summary}
@@ -928,7 +953,7 @@ rule create_final_summary:
         
         # Main results
         echo "Main Results:" >> {output.summary}
-        echo "- Processed database: results/bold.db" >> {output.summary}
+        echo "- Processed database: {config[DB_FILE]}" >> {output.summary}
         echo "- Final scored data: {input.result_tsv}" >> {output.summary}
         if [ -f "{input.result_tsv}" ]; then
             TOTAL_RECORDS=$(tail -n +2 {input.result_tsv} | wc -l)
@@ -945,16 +970,16 @@ rule create_final_summary:
         
         # File structure
         echo "Output Structure:" >> {output.summary}
-        echo "results/" >> {output.summary}
+        echo "{get_results_dir()}/" >> {output.summary}
         echo "├── bold.db                    # Main database" >> {output.summary}
         echo "├── result_output.tsv          # Final scored data" >> {output.summary}
         echo "├── assessed_*.tsv             # Individual criteria assessments" >> {output.summary}
         echo "└── family_databases/          # Split by taxonomy" >> {output.summary}
         
-        DB_COUNT=$(find results/family_databases -name "*.db" 2>/dev/null | wc -l)
+        DB_COUNT=$(find {get_results_dir()}/family_databases -name "*.db" 2>/dev/null | wc -l)
         echo "    ├── $DB_COUNT family/subfamily databases" >> {output.summary}
         
-        PHYLA_COUNT=$(find results/family_databases -maxdepth 1 -type d 2>/dev/null | wc -l)
+        PHYLA_COUNT=$(find {get_results_dir()}/family_databases -maxdepth 1 -type d 2>/dev/null | wc -l)
         echo "    └── organized in $PHYLA_COUNT phyla" >> {output.summary}
         
         echo "" >> {output.summary}
@@ -967,9 +992,9 @@ rule create_final_summary:
 rule all:
     """Main pipeline target - produces final scored output and family databases"""
     input:
-        "results/result_output.tsv",
-        "results/families_split.ok",
-        "results/pipeline_summary.txt"
+        f"{get_results_dir()}/result_output.tsv",
+        f"{get_results_dir()}/families_split.ok",
+        f"{get_results_dir()}/pipeline_summary.txt"
     default_target: True
 
 # UTILITY RULES

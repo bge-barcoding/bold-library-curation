@@ -35,15 +35,18 @@ sub log_msg {
 log_msg('INFO', "Connecting to database: $db_file");
 my $dbh = DBI->connect("dbi:SQLite:$db_file", "", "", {
     RaiseError => 1,
-    AutoCommit => 0,
+    AutoCommit => 1,  # Temporarily enable AutoCommit for PRAGMA statements
     sqlite_see_if_its_a_number => 1,
 }) or die "Cannot connect to database: $DBI::errstr";
 
-# Enable performance optimizations
+# Enable performance optimizations (must be done outside of transactions)
 $dbh->do("PRAGMA journal_mode = WAL");
 $dbh->do("PRAGMA synchronous = NORMAL");
 $dbh->do("PRAGMA cache_size = -256000");  # 256MB cache
 $dbh->do("PRAGMA temp_store = MEMORY");
+
+# Now disable AutoCommit for transaction control
+$dbh->{AutoCommit} = 0;
 
 # Create haplotype tables if they don't exist
 create_haplotype_tables($dbh);
