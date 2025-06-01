@@ -1,29 +1,21 @@
-# Output directory configuration
-RESULTS_DIR: "results"  # Default results directory - can be overridden
-LOG_DIR: "logs"  # Default log directory - can be overridden
-
-# Input data configuration
+config:
 BOLD_TSV: resources/test_data/test_odonata_large.tsv
+DB_FILE: results/bold.db
 SCHEMA: workflow/scripts/schema.sql
 INDEXES: workflow/scripts/indexes.sql
-
-# Library and path configuration
 LIBS: lib/
 PATH: lib/
-
-# Processing configuration
 TAXONOMY_CHUNK_SIZE: 10000  # Adjust based on your system's memory
+TAXONOMY_LOADED: results/taxonomy_check.tsv
 CRITERIA: "COLLECTION_DATE COLLECTORS COORD COUNTRY REGION SECTOR HAS_IMAGE IDENTIFIER ID_METHOD INSTITUTION MUSEUM_ID PUBLIC_VOUCHER SEQ_QUALITY SITE SPECIES_ID TYPE_SPECIMEN"
-
-# Target list configuration
+DB_FILE_INDEXED: results/bold_indexed.ok
 TARGET_LIST: resources/test_data/test_odonata_spec.csv
 USE_TARGET_LIST: false
 PROJECT_NAME: "bold-curation"
 TAXON_LEVEL: "species"
 KINGDOM: "Animalia"
-
-# Logging configuration
-LOG_LEVEL: "INFO"
+LOG_LEVEL: "INFO" 
+DB_CRITERIA_ADDED: results/criteria_indexed
 
 # Pre-scoring filter options
 ENABLE_PRESCORING_FILTER: true  # Master switch true / false
@@ -33,10 +25,4 @@ FILTER_COUNTRIES: true  # true / false
 FILTER_COUNTRY_LIST: "resources/countries/test_odonata.txt"
 FILTER_BINS: true  # Include BIN_URI sharing true / false
 MARKER: "COI-5P"  # Specify marker code (e.g., "COI-5P") to filter by marker_code field, or null to disable marker filtering
-PRESCORING_FILTERED_OUTPUT: "test_odonata_large_filtered.tsv"  # Filename only - will be placed in RESULTS_DIR
-
-# Family splitting configuration
-FAMILY_SIZE_THRESHOLD: 10000  # Split families larger than this by subfamily
-
-# Note: Output paths are dynamically constructed using RESULTS_DIR and LOG_DIR 
-# in the Snakefile helper functions. Directories are created automatically.
+PRESCORING_FILTERED_OUTPUT: "results/test_odonata_large_filtered.tsv"

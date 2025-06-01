@@ -7,7 +7,7 @@
 # ----------------------------------
 import os
 
-configfile: "config/config.yml"
+configfile: "config/config_optimized.yml"
 
 def get_results_dir():
     """Return the configured results directory with default fallback"""
@@ -868,63 +868,12 @@ rule import_haplotypes:
             2> {log} && touch {output}
         """
 
-rule create_ranks_schema:
-    input:
-        db=get_db_file(),
-        haplotypes_ok=f"{get_results_dir()}/haplotypes_imported.ok"
-    output:
-        f"{get_results_dir()}/schema_with_ranks_applied.ok"
-    conda: "envs/sqlite.yaml"
-    log: f"{get_log_dir()}/create_ranks_schema.log"
-    shell:
-        """
-        sqlite3 {input.db} 2> {log} <<SCHEMA
-CREATE TABLE IF NOT EXISTS "bold_ranks" (
-    "recordid" INTEGER NOT NULL,
-    "ranking" INTEGER NOT NULL,
-    "sumscore" INTEGER NOT NULL,
-    "calculated_at" TEXT DEFAULT (datetime('now')),
-    PRIMARY KEY (recordid),
-    FOREIGN KEY(recordid) REFERENCES bold(recordid)
-);
-.quit
-SCHEMA
-        touch {output}
-        """
-
-rule apply_ranking_indexes:
-    input:
-        db=get_db_file(),
-        schema_ok=f"{get_results_dir()}/schema_with_ranks_applied.ok"
-    output: 
-        f"{get_results_dir()}/ranking_indexes_applied.ok"
-    log: f"{get_log_dir()}/apply_ranking_indexes.log"
-    conda: "envs/sqlite.yaml"
-    shell:
-        """
-        sqlite3 {input.db} < workflow/scripts/ranking_indexes.sql 2> {log}
-        touch {output}
-        """
-
-rule calculate_store_ranks:
-    input:
-        db=get_db_file(),
-        indexes_ok=f"{get_results_dir()}/ranking_indexes_applied.ok"
-    output:
-        f"{get_results_dir()}/ranks_calculated.ok"
-    log: f"{get_log_dir()}/calculate_store_ranks.log"
-    conda: "envs/sqlite.yaml"
-    shell:
-        """
-        sqlite3 {input.db} < workflow/scripts/calculate_store_ranks.sql 2> {log}
-        touch {output}
-        """
-
 rule output_filtered_data:
     """Generate final scored and ranked output with all assessments combined"""
     input:
         db=get_db_file(),
-        ranks_ok=f"{get_results_dir()}/ranks_calculated.ok"
+        import_ok=f"{get_results_dir()}/concatenated_imported.ok",
+        haplotypes_ok=f"{get_results_dir()}/haplotypes_imported.ok"
     output:
         f"{get_results_dir()}/result_output.tsv"
     conda: "envs/sqlite.yaml"
@@ -935,7 +884,7 @@ rule output_filtered_data:
 .headers ON        
 .mode tabs
 .output {output}
-.read workflow/scripts/ranking_with_stored_ranks.sql
+.read workflow/scripts/ranking_with_sumscore.sql
 .quit
 EOF
         """
@@ -1065,3 +1014,13 @@ rule all:
         f"{get_results_dir()}/families_split.ok",
         f"{get_results_dir()}/pipeline_summary.txt"
     default_target: True
+
+# UTILITY RULES
+# =============
+
+rule clean:
+    """Remove intermediate output files to free disk space"""
+    shell:
+        """
+        perl workflow/scripts/clean.pl
+        """
