@@ -11,3 +11,5 @@ criteria/
 logs/
 results/
 cluster-tests/
+PHASE1_OPTIMIZATION_README.md
+doc/bold_pipeline_dag_even_faster_bags.svg

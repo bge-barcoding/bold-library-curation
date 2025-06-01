@@ -1,4 +1,12 @@
--- CTE to pivot the criteria into separate columns based on recordid
+-- Calculate and store ranks and sumscores for all BOLD records
+-- This script extracts the ranking logic from ranking_with_sumscore.sql 
+-- and stores the results in the bold_ranks table for efficient querying
+
+-- Clear any existing rank data
+DELETE FROM bold_ranks;
+
+-- Insert calculated ranks and sumscores for all records
+INSERT INTO bold_ranks (recordid, ranking, sumscore)
 WITH PivotedCriteria AS (
     SELECT
         bc.recordid,
@@ -18,7 +26,8 @@ WITH PivotedCriteria AS (
         MAX(CASE WHEN c.name = 'ID_METHOD' THEN bc.status ELSE NULL END) AS ID_METHOD,
         MAX(CASE WHEN c.name = 'INSTITUTION' THEN bc.status ELSE NULL END) AS INSTITUTION,
         MAX(CASE WHEN c.name = 'PUBLIC_VOUCHER' THEN bc.status ELSE NULL END) AS PUBLIC_VOUCHER,
-        MAX(CASE WHEN c.name = 'MUSEUM_ID' THEN bc.status ELSE NULL END) AS MUSEUM_ID
+        MAX(CASE WHEN c.name = 'MUSEUM_ID' THEN bc.status ELSE NULL END) AS MUSEUM_ID,
+        MAX(CASE WHEN c.name = 'HAPLOTYPE_ID' THEN bc.status ELSE NULL END) AS HAPLOTYPE_ID
     FROM
         bold_criteria bc
     JOIN
@@ -26,28 +35,8 @@ WITH PivotedCriteria AS (
     GROUP BY
         bc.recordid
 )
-
--- Main query to select from bold and join on pivoted criteria AND BAGS grades
 SELECT
-    b.*,
-    pc.SPECIES_ID,
-    pc.TYPE_SPECIMEN,
-    pc.SEQ_QUALITY,
-    pc.HAS_IMAGE,
-    pc.COLLECTORS,
-    pc.COLLECTION_DATE,
-    pc.COUNTRY,
-    pc.REGION,
-    pc.SECTOR,
-    pc.SITE,
-    pc.COORD,
-    pc.IDENTIFIER,
-    pc.ID_METHOD,
-    pc.INSTITUTION,
-    pc.PUBLIC_VOUCHER,
-    pc.MUSEUM_ID,
-    pc.sumscore,
-    bags.bags_grade AS BAGS,  -- Add BAGS grade column
+    pc.recordid,
     CASE
         WHEN pc.SPECIES_ID = 1 AND pc.TYPE_SPECIMEN = 1 THEN 1
         WHEN pc.SPECIES_ID = 1 AND pc.SEQ_QUALITY = 1 AND pc.HAS_IMAGE = 1 AND pc.COLLECTORS = 1 AND pc.COLLECTION_DATE = 1 AND pc.COUNTRY = 1 AND (pc.SITE = 1 OR pc.SECTOR = 1 OR pc.REGION = 1 OR pc.COORD = 1) AND pc.IDENTIFIER = 1 AND pc.ID_METHOD = 1 AND (pc.INSTITUTION = 1 OR pc.PUBLIC_VOUCHER = 1 OR pc.MUSEUM_ID = 1) THEN 2
@@ -56,10 +45,22 @@ SELECT
         WHEN pc.SPECIES_ID = 1 AND pc.SEQ_QUALITY = 1 AND pc.HAS_IMAGE = 1 THEN 5
         WHEN pc.SPECIES_ID = 1 AND pc.SEQ_QUALITY = 1 THEN 6
         ELSE 7
-    END AS ranking
+    END AS ranking,
+    pc.sumscore
 FROM
-    bold b
-LEFT JOIN
-    PivotedCriteria pc ON b.recordid = pc.recordid
-LEFT JOIN
-    bags ON b.taxonid = bags.taxonid;
+    PivotedCriteria pc;
+
+-- Create summary statistics for verification
+SELECT 'Rank calculation completed' as status;
+SELECT 'Total records processed: ' || COUNT(*) as summary FROM bold_ranks;
+SELECT 'Rank distribution:' as summary;
+SELECT 
+    'Rank ' || ranking || ': ' || COUNT(*) || ' records' as distribution 
+FROM bold_ranks 
+GROUP BY ranking 
+ORDER BY ranking;
+
+SELECT 'Sumscore statistics:' as summary;
+SELECT 
+    'Min sumscore: ' || MIN(sumscore) || ', Max sumscore: ' || MAX(sumscore) || ', Avg sumscore: ' || ROUND(AVG(sumscore), 2) as stats
+FROM bold_ranks;

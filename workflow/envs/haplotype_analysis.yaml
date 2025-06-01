@@ -1,0 +1,13 @@
+# Create this file as: workflow/envs/haplotype_analysis.yaml
+
+name: haplotype_analysis
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - perl=5.32
+  - perl-dbi
+  - perl-dbd-sqlite
+  - perl-getopt-long
+  - perl-time-hires
+  - sqlite=3.40

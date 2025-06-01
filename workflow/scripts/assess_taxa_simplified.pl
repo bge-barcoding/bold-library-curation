@@ -7,10 +7,8 @@ use BCDM::IO;
 use BCDM::ORM;
 use BCDM::BAGS;
 
-# Simple BAGS analysis that filters output to show only progress
-# Accepts that BCDM modules will produce debug output, but filters it
-
-my $endpoint = 'https://boldsystems.org/index.php/Public_BarcodeCluster?clusteruri=';
+# Simplified BAGS analysis that outputs only essential columns
+# No taxonomic rank columns to avoid alignment issues
 
 my $db_file;
 my $progress_every = 50;
@@ -55,8 +53,8 @@ my $count = 0;
 my $start_time = time();
 my %grades = ();
 
-# Output header to STDOUT
-print join("\t", qw[taxonid order family genus species BAGS BIN sharers]), "\n";
+# Output simplified header to STDOUT
+print join("\t", qw[taxonid BAGS BIN sharers]), "\n";
 
 my $iterator = $species_rs->search({}, { order_by => 'taxonid' });
 while (my $taxon = $iterator->next) {
@@ -65,19 +63,25 @@ while (my $taxon = $iterator->next) {
     my $grade = $bags->grade;
     $grades{$grade}++;
     
-    my @lineage = reverse grep { $_->level =~ /^(order|family|genus)$/ } $taxon->lineage;
-    my @row = (
-        $taxon->taxonid,
-        (map { $_->name } @lineage),
-        $taxon->name,
-        $grade
-    );
+    # Collect all BIN data for aggregation into single row
+    my @bin_uris = ();
+    my @sharer_lists = ();
     
     for my $bin (@{ $bags->bins }) {
         next unless defined $bin && $bin =~ /^BOLD:/;
         my @sharers = $bags->taxa_sharing_bin($bin);
-        print join("\t", @row, $endpoint . $bin, join(',', @sharers)), "\n";
+        
+        push @bin_uris, $bin;
+        push @sharer_lists, join(',', @sharers);
     }
+    
+    # Output single aggregated record per taxon
+    print join("\t", 
+        $taxon->taxonid,
+        $grade,
+        join('|', @bin_uris),
+        join('|', @sharer_lists)
+    ), "\n";
     
     $count++;
     

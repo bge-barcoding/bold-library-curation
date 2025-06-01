@@ -1,3 +1,7 @@
+-- Extended schema that includes the bold_ranks table for storing calculated ranks and sumscores
+-- This extends the original schema.sql with rank storage capabilities
+
+-- Include all original tables from schema.sql
 -- this table contains the verbatim contents
 -- of a BOLD data dump in BCDM TSV format. The
 -- table is extended with a primary key (recordid)
@@ -155,3 +159,60 @@ CREATE TABLE IF NOT EXISTS "bold_criteria" (
     FOREIGN KEY(recordid) REFERENCES bold(recordid),
     FOREIGN KEY(criterionid) REFERENCES criteria(criterionid)
 );
+
+-- Table to store haplotype assignments for BOLD records
+-- Each record is assigned to exactly one haplotype based on sequence similarity
+-- Haplotypes are identified within BINs and species groups
+CREATE TABLE IF NOT EXISTS "bold_haplotypes" (
+    "recordid" INTEGER NOT NULL,            -- Foreign key to bold table
+    "haplotype_id" TEXT NOT NULL,           -- Haplotype identifier (e.g., "BOLD:AAA1234_H1", "Species_name_H1")
+    
+    PRIMARY KEY (recordid),
+    FOREIGN KEY(recordid) REFERENCES bold(recordid)
+);
+
+-- Table to store BAGS (Barcode, Audit & Grade System) assessments for species
+-- Each species receives a grade based on various quality criteria and BIN analysis
+CREATE TABLE IF NOT EXISTS "bags" (
+    "taxonid" INTEGER NOT NULL,             -- Foreign key to taxa table
+    "bags_grade" TEXT NOT NULL,             -- BAGS grade: A, B, C, D, E or F
+    "bin_uri" TEXT,                         -- BIN identifier (may be null)
+    "sharers" TEXT,                         -- Information about BIN sharing
+    
+    FOREIGN KEY(taxonid) REFERENCES taxa(taxonid),
+    
+    -- Ensure unique BAGS assessment per taxon
+    CONSTRAINT unique_bags_per_taxon UNIQUE (taxonid)
+);
+
+-- NEW TABLE: Store calculated ranks and sumscores for each BOLD record
+-- This allows efficient querying and avoids recalculating ranks for every query
+CREATE TABLE IF NOT EXISTS "bold_ranks" (
+    "recordid" INTEGER NOT NULL,            -- Foreign key to bold table
+    "ranking" INTEGER NOT NULL,             -- Calculated ranking (1-7, where 1 is best)
+    "sumscore" INTEGER NOT NULL,            -- Sum of all criteria scores for this record
+    "calculated_at" TEXT DEFAULT (datetime('now')), -- Timestamp when rank was calculated
+    
+    PRIMARY KEY (recordid),
+    FOREIGN KEY(recordid) REFERENCES bold(recordid)
+);
+
+-- Indexes for haplotype analysis performance
+CREATE INDEX IF NOT EXISTS idx_bold_haplotypes_recordid ON bold_haplotypes(recordid);
+CREATE INDEX IF NOT EXISTS idx_bold_haplotypes_haplotype ON bold_haplotypes(haplotype_id);
+
+-- Indexes for BAGS analysis performance
+CREATE INDEX IF NOT EXISTS idx_bags_taxonid ON bags(taxonid);
+CREATE INDEX IF NOT EXISTS idx_bags_grade ON bags(bags_grade);
+CREATE INDEX IF NOT EXISTS idx_bags_bin_uri ON bags(bin_uri);
+
+-- NEW INDEXES: Indexes for ranking and country representative selection performance
+CREATE INDEX IF NOT EXISTS idx_bold_ranks_recordid ON bold_ranks(recordid);
+CREATE INDEX IF NOT EXISTS idx_bold_ranks_ranking ON bold_ranks(ranking);
+CREATE INDEX IF NOT EXISTS idx_bold_ranks_sumscore ON bold_ranks(sumscore);
+CREATE INDEX IF NOT EXISTS idx_bold_ranks_ranking_sumscore ON bold_ranks(ranking, sumscore);
+
+-- Additional indexes for country representative selection
+CREATE INDEX IF NOT EXISTS idx_bold_country_species ON bold("country/ocean", species);
+CREATE INDEX IF NOT EXISTS idx_bold_bin_uri ON bold(bin_uri);
+CREATE INDEX IF NOT EXISTS idx_bold_species ON bold(species);
