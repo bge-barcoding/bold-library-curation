@@ -38,5 +38,9 @@ PRESCORING_FILTERED_OUTPUT: "test_odonata_large_filtered.tsv"  # Filename only -
 # Family splitting configuration
 FAMILY_SIZE_THRESHOLD: 10000  # Split families larger than this by subfamily
 
+# OTU Clustering configuration
+OTU_CLUSTERING_THRESHOLD: 0.99  # Similarity threshold (99%)
+OTU_CLUSTERING_THREADS: 8       # Number of threads for VSEARCH
+
 # Note: Output paths are dynamically constructed using RESULTS_DIR and LOG_DIR 
 # in the Snakefile helper functions. Directories are created automatically.

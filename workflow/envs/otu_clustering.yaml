@@ -1,0 +1,10 @@
+name: otu_clustering
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+dependencies:
+  - perl=5.32
+  - perl-dbi
+  - perl-dbd-sqlite
+  - vsearch=2.22.1

@@ -19,4 +19,7 @@ dependencies:
   - hmmer
   - jq
   - curl
+  # OTU clustering tools
+  - vsearch=2.22.1
+  - cd-hit=4.8.1
 
