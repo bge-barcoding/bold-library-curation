@@ -6,8 +6,7 @@ This Snakemake workflow processes BOLD sequence data through comprehensive quali
 
 The pipeline follows a systematic approach to evaluate BOLD specimens across multiple quality criteria, perform advanced phylogenetic analyses, and produce ranked outputs optimized for library curation. The workflow includes optional pre-filtering capabilities, haplotype analysis, OTU clustering, BAGS assessment, and family-level database splitting for scalable downstream analysis.
 
-![BOLD Pipeline DAG](/doc/bold_pipeline_dag.svg)
-
+![BOLD Pipeline workflow](/doc/bold-workflow-diagram.svg)
 ## Workflow Phases
 
 ### Phase 1: Data Preparation and Filtering
