@@ -1,4 +1,4 @@
-name: haplotype_analysis
+name: otu_clustering
 channels:
   - conda-forge
   - bioconda
@@ -7,6 +7,4 @@ dependencies:
   - perl=5.32.*        # Less restrictive
   - perl-dbi
   - perl-dbd-sqlite
-  - perl-getopt-long
-  - perl-time-hires
-  - sqlite=3.39.*      # More compatible version
+  - vsearch=2.22.1     # Keep specific version for reproducibility

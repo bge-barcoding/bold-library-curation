@@ -1,7 +1,8 @@
 name: prescoring_filter
 channels:
   - conda-forge
+  - defaults
 dependencies:
-  - python=3.9
-  - pandas>=1.3
-  - numpy>=1.20
+  - python=3.10.*  # More HPC-compatible
+  - pandas=1.5.*   # Avoid GLIBC issues - this was likely your main problem!
+  - numpy=1.21.*   # Compatible with pandas 1.5

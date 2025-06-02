@@ -201,6 +201,48 @@ CREATE TABLE IF NOT EXISTS "bold_ranks" (
 CREATE INDEX IF NOT EXISTS idx_bold_haplotypes_recordid ON bold_haplotypes(recordid);
 CREATE INDEX IF NOT EXISTS idx_bold_haplotypes_haplotype ON bold_haplotypes(haplotype_id);
 
+-- Table to store OTU assignments for BOLD records
+-- Each record is assigned to exactly one OTU based on sequence similarity
+CREATE TABLE IF NOT EXISTS "bold_otus" (
+    "recordid" INTEGER NOT NULL,            -- Foreign key to bold table
+    "otu_id" TEXT NOT NULL,                 -- OTU identifier (e.g., "OTU_000001")
+    
+    PRIMARY KEY (recordid),
+    FOREIGN KEY(recordid) REFERENCES bold(recordid)
+);
+
+-- Additional table for storing country representatives
+-- This table stores one representative record per species per OTU per country
+
+CREATE TABLE IF NOT EXISTS "country_representatives" (
+    "recordid" INTEGER NOT NULL,            -- Foreign key to bold table (the selected representative)
+    "country_iso" TEXT NOT NULL,            -- Country ISO code
+    "species" TEXT NOT NULL,                -- Species name
+    "otu_id" TEXT NOT NULL,                 -- OTU identifier
+    "ranking" INTEGER NOT NULL,             -- Ranking of the selected record
+    "sumscore" INTEGER NOT NULL,            -- Sumscore of the selected record
+    "selection_reason" TEXT,                -- Why this record was selected
+    "selected_at" TEXT DEFAULT (datetime('now')), -- Timestamp when selection was made
+    
+    PRIMARY KEY (country_iso, species, otu_id),  -- One representative per country/species/OTU combination
+    FOREIGN KEY(recordid) REFERENCES bold(recordid)
+);
+
+-- Indexes for country representative queries
+CREATE INDEX IF NOT EXISTS idx_country_reps_recordid ON country_representatives(recordid);
+CREATE INDEX IF NOT EXISTS idx_country_reps_country ON country_representatives(country_iso);
+CREATE INDEX IF NOT EXISTS idx_country_reps_species ON country_representatives(species);
+CREATE INDEX IF NOT EXISTS idx_country_reps_otu ON country_representatives(otu_id);
+CREATE INDEX IF NOT EXISTS idx_country_reps_ranking ON country_representatives(ranking);
+CREATE INDEX IF NOT EXISTS idx_country_reps_country_species ON country_representatives(country_iso, species);
+
+-- Composite index for efficient lookups
+CREATE INDEX IF NOT EXISTS idx_country_reps_composite ON country_representatives(country_iso, species, otu_id, ranking);
+
+-- Indexes for OTU analysis performance
+CREATE INDEX IF NOT EXISTS idx_bold_otus_recordid ON bold_otus(recordid);
+CREATE INDEX IF NOT EXISTS idx_bold_otus_otu_id ON bold_otus(otu_id);
+
 -- Indexes for BAGS analysis performance
 CREATE INDEX IF NOT EXISTS idx_bags_taxonid ON bags(taxonid);
 CREATE INDEX IF NOT EXISTS idx_bags_grade ON bags(bags_grade);
@@ -216,3 +258,27 @@ CREATE INDEX IF NOT EXISTS idx_bold_ranks_ranking_sumscore ON bold_ranks(ranking
 CREATE INDEX IF NOT EXISTS idx_bold_country_species ON bold("country/ocean", species);
 CREATE INDEX IF NOT EXISTS idx_bold_bin_uri ON bold(bin_uri);
 CREATE INDEX IF NOT EXISTS idx_bold_species ON bold(species);
+
+-- Manual curation table for curator annotations and status tracking
+CREATE TABLE IF NOT EXISTS "manual_curation" (
+    "curation_id" INTEGER PRIMARY KEY,     -- Primary key for this table
+    "recordid" INTEGER NOT NULL,           -- Foreign key to bold table
+    "processid" TEXT NOT NULL,             -- Redundant but useful for direct lookups
+    "url" TEXT NOT NULL,                   -- Generated BOLD portal URL
+    "status" TEXT,                         -- Curation status
+    "additionalStatus" TEXT,               -- Additional status information
+    "curator_notes" TEXT,                  -- Free-form curator notes
+    "created_at" TEXT DEFAULT (datetime('now')),  -- When record was created
+    "updated_at" TEXT DEFAULT (datetime('now')),  -- When record was last updated
+    
+    FOREIGN KEY(recordid) REFERENCES bold(recordid),
+    
+    -- Ensure unique curation record per BOLD record
+    CONSTRAINT unique_curation_per_record UNIQUE (recordid)
+);
+
+-- Indexes for manual curation table performance
+CREATE INDEX IF NOT EXISTS idx_manual_curation_recordid ON manual_curation(recordid);
+CREATE INDEX IF NOT EXISTS idx_manual_curation_processid ON manual_curation(processid);
+CREATE INDEX IF NOT EXISTS idx_manual_curation_status ON manual_curation(status);
+CREATE INDEX IF NOT EXISTS idx_manual_curation_url ON manual_curation(url);

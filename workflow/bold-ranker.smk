@@ -47,9 +47,12 @@ def get_taxonomy_dependency():
     """Return appropriate dependency based on target list usage"""
     results_dir = get_results_dir()
     if config.get("USE_TARGET_LIST", False):
-        return f"{results_dir}/target_loaded.ok"
+        base_dep = f"{results_dir}/target_loaded.ok"
     else:
-        return f"{results_dir}/taxonomy_loaded.ok"
+        base_dep = f"{results_dir}/taxonomy_loaded.ok"
+    
+    # All assessment rules wait for database optimization to complete
+    return [base_dep, f"{results_dir}/bags_optimized.ok"]
 
 # Ensure configured directories exist
 # ----------------------------------
@@ -596,6 +599,59 @@ rule HAPLOTYPE_ID:
             2> {log} > {output.tsv}
         """
 
+rule OTU_CLUSTERING:
+    """Identify OTUs (Operational Taxonomic Units) using VSEARCH clustering"""
+    input:
+        db=get_db_file(),
+        taxonomy_ok=get_taxonomy_dependency()
+    output:
+        tsv=f"{get_results_dir()}/assessed_OTU_CLUSTERING.tsv"
+    params:
+        log_level=config['LOG_LEVEL'],
+        libs=config["LIBS"],
+        threshold=config.get("OTU_CLUSTERING_THRESHOLD", 0.99),  # Default 99% similarity
+        temp_dir=f"{get_results_dir()}/temp_otu"
+    log: f"{get_log_dir()}/assess_OTU_CLUSTERING.log"
+    conda: "envs/otu_clustering.yaml"
+    threads: config.get("OTU_CLUSTERING_THREADS", 8)
+    shell:
+        """
+        echo "Starting OTU clustering analysis..." > {log}
+        echo "Threshold: {params.threshold}" >> {log}
+        echo "Threads: {threads}" >> {log}
+        echo "Temp directory: {params.temp_dir}" >> {log}
+        echo "Conda environment: $CONDA_PREFIX" >> {log}
+        echo "" >> {log}
+        
+        # Check if vsearch is available
+        if command -v vsearch >/dev/null 2>&1; then
+            echo "VSEARCH found at: $(which vsearch)" >> {log}
+        else
+            echo "ERROR: VSEARCH not found in PATH" >> {log}
+            echo "Available binaries in conda environment:" >> {log}
+            ls -la $CONDA_PREFIX/bin/ | grep -i vsearch >> {log} || echo "No vsearch found in conda bin directory" >> {log}
+            exit 1
+        fi
+        echo "" >> {log}
+        
+        # Create temporary directory
+        mkdir -p {params.temp_dir}
+        
+        # Run the OTU clustering script
+        perl -I{params.libs} workflow/scripts/assess_otu_clustering.pl \
+            --db {input.db} \
+            --log {params.log_level} \
+            --threshold {params.threshold} \
+            --threads {threads} \
+            --temp-dir {params.temp_dir} \
+            2>> {log} > {output.tsv}
+        
+        # Clean up temporary directory
+        rm -rf {params.temp_dir}
+        
+        echo "OTU clustering completed on $(date)" >> {log}
+        """
+
 # PHASE 4: BAGS ASSESSMENT AND OPTIMIZATION
 # =========================================
 
@@ -603,7 +659,7 @@ rule optimize_bags_database:
     """Apply BAGS-specific database optimizations for improved performance"""
     input:
         db=get_db_file(),
-        taxonomy_ok=get_taxonomy_dependency()
+        taxonomy_ok=lambda wildcards: f"{get_results_dir()}/target_loaded.ok" if config.get("USE_TARGET_LIST", False) else f"{get_results_dir()}/taxonomy_loaded.ok"
     output:
         f"{get_results_dir()}/bags_optimized.ok"
     log: f"{get_log_dir()}/optimize_bags_database.log"
@@ -612,30 +668,13 @@ rule optimize_bags_database:
         """
         echo "Applying BAGS-specific database optimizations..." > {log}
         
-        sqlite3 {input.db} 2>> {log} <<OPTIMIZE
--- BAGS Performance Optimizations (Phase 1)
-PRAGMA journal_mode = WAL;
-PRAGMA synchronous = NORMAL;
-PRAGMA cache_size = -64000;
-PRAGMA temp_store = MEMORY;
-
--- Apply BAGS-specific indexes
-.read workflow/scripts/bags_indexes.sql
-
--- Update query planner statistics
-ANALYZE bold;
-ANALYZE taxa;
-
--- Final optimization
-PRAGMA optimize;
-.quit
-OPTIMIZE
+        sqlite3 {input.db} < workflow/scripts/bags_indexes.sql 2>> {log}
 
         echo "BAGS database optimization completed on $(date)" >> {log}
         touch {output}
         """
 
-# BAGS (species-level assessment) - SIMPLIFIED OUTPUT WITH ESSENTIAL COLUMNS ONLY
+# BAGS (species-level assessment)
 rule BAGS:
     input:
         db=get_db_file(),
@@ -868,10 +907,66 @@ rule import_haplotypes:
             2> {log} && touch {output}
         """
 
+rule import_otus:
+    """Import OTU data into specialized OTU table"""
+    input:
+        otu_tsv=rules.OTU_CLUSTERING.output.tsv,
+        db=get_db_file(),
+        haplotypes_ok=f"{get_results_dir()}/haplotypes_imported.ok"
+    output:
+        f"{get_results_dir()}/otus_imported.ok"
+    params:
+        log_level=config['LOG_LEVEL']
+    conda: "envs/sqlite.yaml"
+    log: f"{get_log_dir()}/import_otus.log"
+    shell:
+        """
+        echo "Importing OTU data..." > {log}
+        
+        sqlite3 {input.db} 2>> {log} <<OTU
+-- Clear any existing OTU data
+DELETE FROM bold_otus;
+
+-- Import the OTU data
+.mode tabs
+.import {input.otu_tsv} otu_temp
+
+-- Insert data, skipping header row
+INSERT INTO bold_otus (recordid, otu_id) 
+SELECT recordid, OTU_ID 
+FROM otu_temp 
+WHERE recordid != 'recordid' 
+AND recordid IS NOT NULL 
+AND OTU_ID IS NOT NULL
+AND OTU_ID != 'UNASSIGNED';
+
+-- Drop temporary table
+DROP TABLE otu_temp;
+
+-- Show import statistics
+SELECT 'Total OTU assignments imported: ' || COUNT(*) as result FROM bold_otus;
+SELECT 'Unique OTUs: ' || COUNT(DISTINCT otu_id) as result FROM bold_otus;
+
+-- Show top 10 largest OTUs
+SELECT 'Top 10 largest OTUs:' as result;
+SELECT otu_id, COUNT(*) as member_count 
+FROM bold_otus 
+GROUP BY otu_id 
+ORDER BY member_count DESC 
+LIMIT 10;
+
+.quit
+OTU
+
+        echo "OTU import completed on $(date)" >> {log}
+        touch {output}
+        """
+
 rule create_ranks_schema:
     input:
         db=get_db_file(),
-        haplotypes_ok=f"{get_results_dir()}/haplotypes_imported.ok"
+        haplotypes_ok=f"{get_results_dir()}/haplotypes_imported.ok",
+        otus_ok=f"{get_results_dir()}/otus_imported.ok"
     output:
         f"{get_results_dir()}/schema_with_ranks_applied.ok"
     conda: "envs/sqlite.yaml"
@@ -920,11 +1015,75 @@ rule calculate_store_ranks:
         touch {output}
         """
 
-rule output_filtered_data:
-    """Generate final scored and ranked output with all assessments combined"""
+rule select_country_representatives:
+    """Select best representative record per species per OTU per country"""
     input:
         db=get_db_file(),
         ranks_ok=f"{get_results_dir()}/ranks_calculated.ok"
+    output:
+        f"{get_results_dir()}/country_representatives_selected.ok"
+    conda: "envs/sqlite.yaml"
+    log: f"{get_log_dir()}/select_country_representatives.log"
+    shell:
+        """
+        echo "=== Starting Country Representative Selection ===" > {log}
+        echo "Start time: $(date)" >> {log}
+        echo "Database: {input.db}" >> {log}
+        echo "" >> {log}
+        
+        echo "Selection criteria:" >> {log}
+        echo "- Group by: country_iso + species + otu_id" >> {log}
+        echo "- Select by: ranking ASC, sumscore DESC, recordid ASC" >> {log}
+        echo "- Filter: species-level identification only" >> {log}
+        echo "" >> {log}
+        
+        # Execute country representative selection
+        sqlite3 {input.db} < workflow/scripts/select_country_representatives.sql 2>> {log}
+        
+        echo "" >> {log}
+        echo "=== Country Representative Selection Completed ===" >> {log}
+        echo "End time: $(date)" >> {log}
+        
+        touch {output}
+        """
+
+rule populate_manual_curation:
+    """Populate manual_curation table with URLs for all BOLD records"""
+    input:
+        db=get_db_file(),
+        rep_ok=f"{get_results_dir()}/country_representatives_selected.ok"
+    output:
+        f"{get_results_dir()}/manual_curation_populated.ok"
+    conda: "envs/sqlite.yaml"
+    log: f"{get_log_dir()}/populate_manual_curation.log"
+    shell:
+        """
+        echo "=== Starting Manual Curation Table Population ===" > {log}
+        echo "Start time: $(date)" >> {log}
+        echo "Database: {input.db}" >> {log}
+        echo "" >> {log}
+        
+        # Populate manual_curation table with URLs
+        sqlite3 {input.db} < workflow/scripts/populate_manual_curation.sql 2>> {log}
+        
+        # Log statistics
+        echo "" >> {log}
+        echo "Population statistics:" >> {log}
+        sqlite3 {input.db} "SELECT COUNT(*) as total_curation_records FROM manual_curation;" 2>> {log} | while read line; do echo "Total curation records: $line" >> {log}; done
+        sqlite3 {input.db} "SELECT COUNT(*) as records_with_urls FROM manual_curation WHERE url LIKE '%/record/None';" 2>> {log} | while read line; do echo "Records with NULL/empty processid: $line" >> {log}; done
+        
+        echo "" >> {log}
+        echo "=== Manual Curation Table Population Completed ===" >> {log}
+        echo "End time: $(date)" >> {log}
+        
+        touch {output}
+        """
+
+rule output_filtered_data:
+    """Generate final scored and ranked output with all assessments combined including OTUs"""
+    input:
+        db=get_db_file(),
+        curation_ok=f"{get_results_dir()}/manual_curation_populated.ok"
     output:
         f"{get_results_dir()}/result_output.tsv"
     conda: "envs/sqlite.yaml"
@@ -935,7 +1094,7 @@ rule output_filtered_data:
 .headers ON        
 .mode tabs
 .output {output}
-.read workflow/scripts/ranking_with_stored_ranks.sql
+.read workflow/scripts/ranking_with_stored_ranks_otu.sql
 .quit
 EOF
         """
@@ -1063,5 +1222,6 @@ rule all:
     input:
         f"{get_results_dir()}/result_output.tsv",
         f"{get_results_dir()}/families_split.ok",
-        f"{get_results_dir()}/pipeline_summary.txt"
+        f"{get_results_dir()}/pipeline_summary.txt",
+        f"{get_results_dir()}/country_representatives_selected.ok"
     default_target: True

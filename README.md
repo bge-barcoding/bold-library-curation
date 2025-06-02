@@ -9,32 +9,59 @@
 
 ## Overview
 
-An automated pipeline for curating [BOLD Systems](https://boldsystems.org) barcode reference sequence data, implementing classification criteria developed by the [Biodiversity Genomics Europe (BGE)](https://biodiversitygenomics.eu) consortium. This tool processes BOLD data dumps in BCDM TSV format to classify barcode sequences based on standardized quality criteria.
+A comprehensive Snakemake pipeline for processing and curating [BOLD Systems](https://boldsystems.org) barcode reference sequence data. This tool implements standardized quality assessment criteria developed by the [Biodiversity Genomics Europe (BGE)](https://biodiversitygenomics.eu) consortium to evaluate and rank DNA barcode sequences for library curation.
 
 ### Key Features
 
-- **Automated Quality Assessment**: Evaluates barcode sequences against multiple criteria including collection metadata, voucher information, and sequence quality
+- **Comprehensive Quality Assessment**: Evaluates specimens against 16 standardized criteria including metadata completeness, voucher information, sequence quality, and phylogenetic analyses
+- **Advanced Phylogenetic Analysis**: Includes haplotype identification and OTU clustering for genetic diversity assessment
+- **BAGS Species Assessment**: Automated species-level quality grading system with subspecies inheritance
+- **Geographic Representation**: Country representative selection for balanced geographic sampling
+- **Scalable Architecture**: Family-level database splitting for efficient analysis of large datasets
 - **FAIR Compliance**: Built with reproducibility and provenance tracking using Snakemake workflows
-- **Standardized Classification**: Implements BGE consortium criteria for barcode reference sequence classification
-- **Scalable Processing**: Supports both local execution and HPC cluster deployment
 
 ## Background
 
-The classification criteria being implemented are actively developed by the BGE consortium and documented in this [living document](https://docs.google.com/document/d/18m-7UnoJTG49TbvTsq_VncKMYZbYVbau98LE_q4rQvA/edit). The pipeline evaluates sequences based on:
+The classification criteria are actively developed by the BGE consortium and documented in this [living document](https://docs.google.com/document/d/18m-7UnoJTG49TbvTsq_VncKMYZbYVbau98LE_q4rQvA/edit). The pipeline evaluates sequences based on multiple quality dimensions to support evidence-based curation decisions.
 
-- Collection date and collector information
-- Geographic coordinates and location data
-- Specimen voucher and museum information
-- Sequence quality metrics
-- Taxonomic identification details
-- Image availability
+## Pipeline Workflow
+
+The pipeline processes BOLD data through six main phases:
+
+1. **Data Preparation**: Optional pre-filtering by taxa, geography, or genetic markers
+2. **Database Setup**: SQLite database creation with taxonomic enrichment
+3. **Quality Assessment**: Evaluation against 16 standardized criteria plus phylogenetic analyses
+4. **BAGS Assessment**: Species-level quality grading with database optimization
+5. **Data Integration**: Ranking system combining all assessments with country representative selection
+6. **Family Splitting**: Creation of family-level databases for scalable downstream analysis
+
+### Assessment Criteria
+
+**Specimen Metadata**: Collection date, collectors, identifier, identification method  
+**Geographic Data**: Country, region, site, sector, coordinates  
+**Repository Info**: Institution, museum ID, public voucher  
+**Sequence Quality**: DNA quality metrics, species ID, type specimen, images  
+**Phylogenetic**: Haplotype identification, OTU clustering
 
 ## Requirements
 
 - **Operating System**: Linux, macOS, or Windows with WSL
 - **Package Manager**: Mamba (recommended) or Conda
-- **Memory**: Minimum 8GB RAM (24GB recommended for large datasets)
-- **Storage**: Sufficient space for BOLD data dumps (typically several GB)
+- **Memory**: Minimum 8GB RAM (16GB+ recommended for large datasets)
+- **Storage**: Sufficient space for BOLD data and family databases
+- **Dependencies**: VSEARCH (for OTU clustering), SQLite, Perl, Python
+ Data**: Country, region, site, sector, coordinates  
+**Repository Info**: Institution, museum ID, public voucher  
+**Sequence Quality**: DNA quality metrics, species ID, type specimen, images  
+**Phylogenetic**: Haplotype identification, OTU clustering
+
+## Requirements
+
+- **Operating System**: Linux, macOS, or Windows with WSL
+- **Package Manager**: Mamba (recommended) or Conda
+- **Memory**: Minimum 8GB RAM (16GB+ recommended for large datasets)
+- **Storage**: Sufficient space for BOLD data and family databases
+- **Dependencies**: VSEARCH (for OTU clustering), SQLite, Perl, Python
 
 ## Installation
 
@@ -50,109 +77,152 @@ The classification criteria being implemented are actively developed by the BGE 
    mamba activate bold-curation
    ```
 
-## Configuration
+## Quick Start
 
-Before running the pipeline, configure your analysis in `config/config.yml`:
+1. **Configure your analysis** in `config/config.yml`:
+   ```yaml
+   # Input data
+   BOLD_TSV: "resources/your_bold_data.tsv"
+   
+   # Optional filtering
+   ENABLE_PRESCORING_FILTER: false
+   USE_TARGET_LIST: false
+   
+   # Analysis parameters
+   OTU_CLUSTERING_THRESHOLD: 0.99
+   FAMILY_SIZE_THRESHOLD: 10000
+   ```
 
-```yaml
-# Input data
-BOLD_TSV: resources/BOLD_Public.05-Apr-2024.tsv
+2. **Run the pipeline:**
+   ```bash
+   snakemake --cores 4 --use-conda
+   ```
 
-# Analysis parameters
-TAXON_LEVEL: "species"
-KINGDOM: "Animalia"
-CRITERIA: "COLLECTION_DATE COLLECTORS COORD COUNTRY..."
+3. **Check results** in `results/result_output.tsv` and `results/family_databases/`
 
-# Project settings
-PROJECT_NAME: "bold-curation"
-LOG_LEVEL: "INFO"
+## Configuration Options
+
+### Core Settings
+- **BOLD_TSV**: Path to BOLD data dump (BCDM TSV format)
+- **RESULTS_DIR/LOG_DIR**: Customizable output directories
+- **TAXONOMY_CHUNK_SIZE**: Memory optimization (default: 10,000)
+
+### Optional Filtering
+- **Pre-scoring Filter**: Early dataset reduction by taxa, countries, markers, or BIN sharing
+- **Target Lists**: Focus on specific species of interest
+- **Geographic Filtering**: Country-based specimen filtering
+
+### Analysis Parameters
+- **OTU_CLUSTERING_THRESHOLD**: Genetic similarity for clustering (default: 0.99)
+- **OTU_CLUSTERING_THREADS**: Parallel processing threads (default: 8)
+- **FAMILY_SIZE_THRESHOLD**: Minimum records for individual family databases (default: 10,000)
+
+## Usage Examples
+
+### Basic Analysis
+```bash
+# Standard pipeline execution
+snakemake --cores 8 --use-conda
 ```
 
-### Key Configuration Options
-
-- **BOLD_TSV**: Path to your BOLD data dump file
-- **TARGET_LIST**: Path to species and synonymy data (CSV format)
-- **CRITERIA**: Space-separated list of quality criteria to evaluate
-- **TAXON_LEVEL**: Taxonomic level for analysis (species, genus, etc.)
-- **KINGDOM**: Target taxonomic kingdom
-
-## Usage
-
-### Basic Execution
-
-Run the complete pipeline with default settings:
-
+### Large Dataset with Pre-filtering
 ```bash
-snakemake -p -c 4
+# Configure pre-filtering in config.yml first
+# ENABLE_PRESCORING_FILTER: true
+# FILTER_TAXA: true
+# FILTER_TAXA_LIST: "resources/target_taxa.txt"
+snakemake --cores 16 --use-conda --resources mem_mb=32000
 ```
 
 ### HPC Cluster Execution (SLURM)
-
-For high-performance computing environments:
-
 ```bash
 #!/bin/bash
 #SBATCH --partition=day
-#SBATCH --output=job_curate_bold_%j.out
-#SBATCH --error=job_curate_bold_%j.err
-#SBATCH --mem=24G
-#SBATCH --cpus-per-task=4
+#SBATCH --mem=32G
+#SBATCH --cpus-per-task=16
 
 source activate bold-curation
-
-# Clean previous runs (backup results first if needed)
-snakemake --unlock -p -c 4 clean
-
-# Execute pipeline
-snakemake -p -c 4
-
-echo "Pipeline complete!"
+snakemake --cores 16 --use-conda
 ```
 
-### Incremental Execution
-
-The pipeline supports incremental execution. To run specific steps or restart from a checkpoint:
-
+### Target Species Focus
 ```bash
-# Run only database creation
-snakemake -p -c 4 results/bold.db
-
-# Clean previous results (with unlock for interrupted runs)
-snakemake --unlock -p -c 4 clean
+# Enable target list in config.yml
+# USE_TARGET_LIST: true
+# TARGET_LIST: "resources/target_species.csv"
+snakemake --cores 8 --use-conda
 ```
 
-## Output
+## Output Files
 
-The pipeline generates several output files in the `results/` directory:
+### Primary Outputs
+- **`results/result_output.tsv`**: Final scored and ranked specimens with all assessments
+- **`results/family_databases/`**: Family-level SQLite databases organized by phylum
+- **`results/pipeline_summary.txt`**: Comprehensive execution summary
 
-- **bold.db**: SQLite database containing processed BOLD data
-- **taxonomy_check.tsv**: Taxonomic validation results  
-- **criteria_indexed**: Quality criteria evaluation results
-- **Log files**: Detailed execution logs for troubleshooting
+### Assessment Results
+- **Individual criteria files**: `assessed_*.tsv` for each quality criterion
+- **BAGS assessment**: Species-level quality grades with BIN sharing analysis
+- **Phylogenetic analyses**: Haplotype IDs and OTU clustering results
+- **Database**: Complete SQLite database with specialized tables for complex queries
+
+### Performance Monitoring
+- **Comprehensive logging**: Step-by-step execution logs in `logs/` directory
+- **Progress tracking**: Real-time monitoring for long-running operations
+- **Error handling**: Detailed debugging information for troubleshooting
+
+## Performance Guidelines
+
+### Dataset Size Recommendations
+- **Small** (< 10K records): 30-60 minutes, 8GB RAM
+- **Medium** (10K-100K records): 2-6 hours, 16GB RAM  
+- **Large** (100K+ records): 6-24 hours, 32GB+ RAM
+- **Very large** (1M+ records): 1-3 days, consider pre-filtering
+
+### Optimization Tips
+1. **Use pre-scoring filter** for very large datasets
+2. **Adjust memory settings** based on available resources
+3. **Configure threading** for OTU clustering based on CPU cores
+4. **Use SSD storage** for database operations when possible
 
 ## Project Structure
 
 ```
 bold-library-curation/
 ├── config/                 # Configuration files
-│   └── config.yml         # Main configuration
 ├── workflow/              # Snakemake workflow
-│   ├── Snakefile         # Main workflow definition
+│   ├── bold-ranker.smk   # Main workflow definition
 │   ├── scripts/          # Analysis scripts
-│   └── envs/             # Environment specifications
+│   ├── envs/             # Conda environments
+│   └── README.md         # Detailed workflow documentation
 ├── resources/            # Input data and references
-├── results/              # Output files
-├── lib/                  # Library files
-└── doc/                  # Documentation
+├── results/              # Output files and databases
+└── logs/                 # Execution logs
 ```
+
+## Advanced Features
+
+### Phylogenetic Integration
+- **Haplotype Analysis**: Identifies genetic variants within species/BIN groups
+- **OTU Clustering**: VSEARCH-based clustering with configurable similarity thresholds
+- **Multi-threaded Processing**: Parallel execution for computationally intensive steps
+
+### Geographic Representation
+- **Country Representatives**: Systematic selection of optimal specimens per region
+- **Balanced Sampling**: Maintains geographic diversity while optimizing quality
+
+### Database Architecture
+- **Hierarchical Organization**: Family-level databases organized by phylum
+- **Specialized Tables**: Optimized schema for different data types
+- **Efficient Querying**: Comprehensive indexing for complex analyses
 
 ## Contributing
 
-We welcome contributions! Please:
+We welcome contributions! Please see our [contributing guidelines](CONTRIBUTING.md) and:
 
 1. Fork the repository
 2. Create a feature branch
-3. Make your changes with appropriate tests
+3. Make changes with appropriate tests
 4. Submit a pull request
 
 ## License
@@ -172,9 +242,9 @@ If you use this tool in your research, please cite:
 ## Support
 
 - **Issues**: Report bugs and request features via [GitHub Issues](https://github.com/bge-barcoding/bold-library-curation/issues)
-- **Documentation**: Additional documentation available in the `doc/` directory
+- **Documentation**: Detailed workflow documentation in `workflow/README.md`
 - **BGE Consortium**: Visit [biodiversitygenomics.eu](https://biodiversitygenomics.eu) for project updates
 
 ## Acknowledgments
 
-This work is supported by the Biodiversity Genomics Europe (BGE) consortium and contributes to the International Barcode of Life (IBOL) initiative. Biodiversity Genomics Europe (Grant no.101059492) is funded by Horizon Europe under the Biodiversity, Circular Economy and Environment call (REA.B.3); co-funded by the Swiss State Secretariat for Education, Research and Innovation (SERI) under contract numbers 22.00173 and 24.00054; and by the UK Research and Innovation (UKRI) under the Department for Business, Energy and Industrial Strategy’s Horizon Europe Guarantee Scheme
+This work is supported by the Biodiversity Genomics Europe (BGE) consortium and contributes to the International Barcode of Life (IBOL) initiative. Biodiversity Genomics Europe (Grant no.101059492) is funded by Horizon Europe under the Biodiversity, Circular Economy and Environment call (REA.B.3); co-funded by the Swiss State Secretariat for Education, Research and Innovation (SERI) under contract numbers 22.00173 and 24.00054; and by the UK Research and Innovation (UKRI) under the Department for Business, Energy and Industrial Strategy's Horizon Europe Guarantee Scheme.

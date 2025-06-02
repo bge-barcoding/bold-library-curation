@@ -2,12 +2,18 @@ name: bold-curation
 channels:
   - conda-forge
   - bioconda
-  - eumetsat
   - defaults
 dependencies:
-  - snakemake
+  # Core Python and workflow management
+  - python=3.10.*  # More stable for HPC systems
+  - snakemake=7.32.*  # Pin to stable version to avoid pandas issues
   - mamba
-  - sqlite
+  
+  # Database
+  - sqlite=3.39.*  # Slightly older for better HPC compatibility
+  
+  # Core Perl dependencies (consolidate versions)
+  - perl=5.32.*
   - perl-bio-phylo-forest-dbtree
   - perl-text-csv_xs
   - perl-log-log4perl
@@ -16,7 +22,19 @@ dependencies:
   - perl-libwww-perl
   - perl-lwp-protocol-https
   - perl-dbd-sqlite
+  - perl-dbi
+  - perl-getopt-long
+  - perl-time-hires
+  
+  # Analysis tools
   - hmmer
   - jq
   - curl
-
+  
+  # OTU clustering tools (pin versions for reproducibility)
+  - vsearch=2.22.1
+  - cd-hit=4.8.1
+  
+  # Python packages for compatibility
+  - pandas=1.5.*  # Older version to avoid GLIBC issues
+  - numpy=1.21.*  # Compatible with pandas 1.5
