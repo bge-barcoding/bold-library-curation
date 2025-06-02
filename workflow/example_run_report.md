@@ -59,33 +59,6 @@ results/
 ├── assessed_HAS_IMAGE.tsv                 # Image availability assessment
 ├── assessed_HAPLOTYPE_ID.tsv              # Haplotype identification assessment
 └── assessed_OTU_CLUSTERING.tsv            # OTU clustering results
-```
-├── load_criteria.log                      # Criteria loading log
-├── apply_indexes.log                      # Indexing log
-└── load_taxonomy.log                      # Taxonomy loading log
-```
-
-### Phase 3: Quality Criteria Assessment
-```
-results/
-├── assessed_COLLECTION_DATE.tsv           # Collection date assessment
-├── assessed_COLLECTORS.tsv                # Collectors information assessment
-├── assessed_COUNTRY.tsv                   # Country information assessment
-├── assessed_ID_METHOD.tsv                 # Identification method assessment
-├── assessed_IDENTIFIER.tsv                # Identifier information assessment
-├── assessed_INSTITUTION.tsv               # Institution affiliation assessment
-├── assessed_COORD.tsv                     # Geographic coordinates assessment
-├── assessed_MUSEUM_ID.tsv                 # Museum ID assessment
-├── assessed_PUBLIC_VOUCHER.tsv            # Public voucher assessment
-├── assessed_SEQ_QUALITY.tsv               # Sequence quality assessment
-├── assessed_SITE.tsv                      # Collection site assessment
-├── assessed_REGION.tsv                    # Geographic region assessment
-├── assessed_SECTOR.tsv                    # Geographic sector assessment
-├── assessed_SPECIES_ID.tsv                # Species identification assessment
-├── assessed_TYPE_SPECIMEN.tsv             # Type specimen assessment
-├── assessed_HAS_IMAGE.tsv                 # Image availability assessment
-├── assessed_HAPLOTYPE_ID.tsv              # Haplotype identification assessment
-└── assessed_OTU_CLUSTERING.tsv            # OTU clustering results
 
 logs/
 ├── assess_COLLECTION_DATE.log
