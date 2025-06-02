@@ -77,6 +77,7 @@ if config.get("ENABLE_PRESCORING_FILTER", False):
             country_arg=lambda wildcards: f"--country-list {config['FILTER_COUNTRY_LIST']}" if config.get("FILTER_COUNTRIES", False) and config.get("FILTER_COUNTRY_LIST") else "",
             marker_arg=lambda wildcards: f"--marker {config['MARKER']}" if config.get("MARKER") else "",
             bin_arg="--enable-bin-sharing" if config.get("FILTER_BINS", False) else "",
+            species_arg="--filter-species" if config.get("FILTER_SPECIES", False) else "",
             log_level=config['LOG_LEVEL']
         log: f"{get_log_dir()}/prescoring_filter.log"
         conda: "envs/prescoring_filter.yaml"
@@ -90,6 +91,7 @@ if config.get("ENABLE_PRESCORING_FILTER", False):
                 {params.country_arg} \
                 {params.marker_arg} \
                 {params.bin_arg} \
+                {params.species_arg} \
                 2> {log}
             echo "Prescoring filter completed" > {output.marker}
             """

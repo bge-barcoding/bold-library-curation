@@ -32,6 +32,7 @@ FILTER_TAXA_LIST: "resources/test_data/test_odonata_spec.csv"
 FILTER_COUNTRIES: true  # true / false
 FILTER_COUNTRY_LIST: "resources/countries/test_odonata.txt"
 FILTER_BINS: true  # Include BIN_URI sharing true / false
+FILTER_SPECIES: true  # Only include records with valid species names (not null, empty, or "None") true / false
 MARKER: "COI-5P"  # Specify marker code (e.g., "COI-5P") to filter by marker_code field, or null to disable marker filtering
 PRESCORING_FILTERED_OUTPUT: "test_odonata_large_filtered.tsv"  # Filename only - will be placed in RESULTS_DIR
 

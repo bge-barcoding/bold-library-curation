@@ -42,6 +42,23 @@ def setup_logging(log_level: str = "INFO") -> None:
     )
 
 
+def has_valid_species(species_value: str) -> bool:
+    """
+    Check if species value is valid (not None, empty, or "None").
+    
+    Args:
+        species_value: Raw species value from TSV
+        
+    Returns:
+        True if species has a valid value, False otherwise
+    """
+    if not species_value:
+        return False
+    
+    species_clean = species_value.strip().lower()
+    return species_clean and species_clean != 'none'
+
+
 def load_taxa_list(file_path: str) -> Set[str]:
     """
     Load species names from taxa list file (semicolon separated format).
@@ -373,7 +390,8 @@ def prescoring_filter(
     taxa_list: Optional[str] = None,
     country_list: Optional[str] = None,
     marker_code: Optional[str] = None,
-    enable_bin_sharing: bool = False
+    enable_bin_sharing: bool = False,
+    filter_species: bool = False
 ) -> Dict[str, Any]:
     """
     Main filtering function with multi-criteria support.
@@ -470,6 +488,7 @@ def prescoring_filter(
     rows_skipped_no_processid = 0
     rows_skipped_not_matching = 0
     rows_skipped_wrong_marker = 0
+    rows_skipped_no_species = 0
     unique_processids_written = set()
     
     with open(input_tsv, 'r', encoding='utf-8') as infile, \
@@ -503,6 +522,13 @@ def prescoring_filter(
                     rows_skipped_wrong_marker += 1
                     continue
             
+            # Species filter check (if enabled)
+            if filter_species and 'species' in column_map:
+                species_raw = row.get(column_map['species'], '') or ''
+                if not has_valid_species(species_raw):
+                    rows_skipped_no_species += 1
+                    continue
+            
             # If we get here, the record passes all filters
             # Filter out any fields not in fieldnames to prevent DictWriter errors
             valid_keys = set(writer.fieldnames)
@@ -511,7 +537,7 @@ def prescoring_filter(
             rows_written += 1
             unique_processids_written.add(processid)
     
-    logging.info(f"Output summary: {rows_written} rows written, {rows_skipped_no_processid} rows skipped (no processid), {rows_skipped_not_matching} rows skipped (processid not matching), {rows_skipped_wrong_marker} rows skipped (wrong marker)")
+    logging.info(f"Output summary: {rows_written} rows written, {rows_skipped_no_processid} rows skipped (no processid), {rows_skipped_not_matching} rows skipped (processid not matching), {rows_skipped_wrong_marker} rows skipped (wrong marker), {rows_skipped_no_species} rows skipped (no valid species)")
     logging.info(f"Unique processids written: {len(unique_processids_written)}")
     
     # Note about the counts
@@ -579,6 +605,8 @@ Examples:
                         help='Marker code to filter by (e.g., COI-5P)')
     parser.add_argument('--enable-bin-sharing', action='store_true',
                         help='Include BIN_URI sharing expansion')
+    parser.add_argument('--filter-species', action='store_true',
+                        help='Only include records with valid species names (not null, empty, or "None")')
     parser.add_argument('--log-level', default='INFO',
                         choices=['DEBUG', 'INFO', 'WARNING', 'ERROR'],
                         help='Logging level (default: INFO)')
@@ -596,7 +624,8 @@ Examples:
             taxa_list=args.taxa_list,
             country_list=args.country_list,
             marker_code=args.marker,
-            enable_bin_sharing=args.enable_bin_sharing
+            enable_bin_sharing=args.enable_bin_sharing,
+            filter_species=args.filter_species
         )
         
         # Print summary statistics
