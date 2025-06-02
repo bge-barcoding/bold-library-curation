@@ -25,6 +25,9 @@ A comprehensive Snakemake pipeline for processing and curating [BOLD Systems](ht
 The classification criteria are actively developed by the BGE consortium and documented in this [living document](https://docs.google.com/document/d/18m-7UnoJTG49TbvTsq_VncKMYZbYVbau98LE_q4rQvA/edit). The pipeline evaluates sequences based on multiple quality dimensions to support evidence-based curation decisions.
 
 ## Pipeline Workflow
+[DETAILED WORKFLOW](https://github.com/bge-barcoding/bold-library-curation/blob/main/workflow/README.md)
+
+[Example RUN OUTPUT](https://github.com/bge-barcoding/bold-library-curation/blob/main/workflow/example_run_report.md)
 
 The pipeline processes BOLD data through six main phases:
 
