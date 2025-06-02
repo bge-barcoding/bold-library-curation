@@ -1,6 +1,7 @@
 -- Select country representatives: Best record per species per OTU per country
 -- Selection criteria: Lowest ranking, then highest sumscore, then lowest recordid (for deterministic tiebreaking)
 -- Groups by: country_iso + species + otu_id
+-- UPDATED: Excludes records with rank 7 OR BAGS grade F
 
 -- Clear any existing country representative data
 DELETE FROM country_representatives;
@@ -15,6 +16,7 @@ WITH RankedRecords AS (
         bo.otu_id,
         br.ranking,
         br.sumscore,
+        bags.bags_grade,
         -- Window function to rank records within each group
         ROW_NUMBER() OVER (
             PARTITION BY b.country_iso, b.species, bo.otu_id 
@@ -34,6 +36,8 @@ WITH RankedRecords AS (
         bold_ranks br ON b.recordid = br.recordid
     JOIN 
         bold_otus bo ON b.recordid = bo.recordid
+    LEFT JOIN 
+        bags ON b.taxonid = bags.taxonid
     WHERE 
         -- Only include records with species-level identification
         b.species IS NOT NULL 
@@ -48,6 +52,9 @@ WITH RankedRecords AS (
         AND bo.otu_id IS NOT NULL
         AND bo.otu_id != ''
         AND bo.otu_id != 'UNASSIGNED'
+        -- NEW FILTERS: Exclude rank 7 OR BAGS grade F
+        AND br.ranking != 7              -- Exclude lowest quality rank
+        AND (bags.bags_grade IS NULL OR bags.bags_grade != 'F')  -- Exclude BAGS grade F (allow NULL for records without BAGS)
 )
 SELECT 
     recordid,
@@ -59,40 +66,3 @@ SELECT
     selection_reason
 FROM RankedRecords 
 WHERE selection_rank = 1;
-
--- Generate summary statistics
-SELECT 'Country representative selection completed' as status;
-
-SELECT 'Summary Statistics:' as result;
-SELECT 'Total country representatives selected: ' || COUNT(*) as summary FROM country_representatives;
-SELECT 'Unique countries: ' || COUNT(DISTINCT country_iso) as summary FROM country_representatives;
-SELECT 'Unique species: ' || COUNT(DISTINCT species) as summary FROM country_representatives;
-SELECT 'Unique OTUs: ' || COUNT(DISTINCT otu_id) as summary FROM country_representatives;
-
-SELECT 'Selection by ranking:' as result;
-SELECT 
-    'Rank ' || ranking || ': ' || COUNT(*) || ' representatives' as distribution 
-FROM country_representatives 
-GROUP BY ranking 
-ORDER BY ranking;
-
-SELECT 'Top 10 countries by number of representatives:' as result;
-SELECT 
-    country_iso, 
-    COUNT(*) as representative_count,
-    COUNT(DISTINCT species) as unique_species,
-    COUNT(DISTINCT otu_id) as unique_otus
-FROM country_representatives 
-GROUP BY country_iso 
-ORDER BY representative_count DESC 
-LIMIT 10;
-
-SELECT 'Top 10 species by number of country representatives:' as result;
-SELECT 
-    species, 
-    COUNT(*) as country_count,
-    COUNT(DISTINCT otu_id) as otu_count
-FROM country_representatives 
-GROUP BY species 
-ORDER BY country_count DESC 
-LIMIT 10;

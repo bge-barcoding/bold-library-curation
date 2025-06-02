@@ -1,7 +1,7 @@
-name: load_taxonomy
+name: load_criteria  # Fixed: was incorrectly named "load_taxonomy"
 channels:
   - conda-forge
   - bioconda
   - defaults
 dependencies:
-  - sqlite
+  - sqlite=3.39.*

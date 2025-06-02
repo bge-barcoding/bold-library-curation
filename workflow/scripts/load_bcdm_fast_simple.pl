@@ -211,19 +211,8 @@ EOF
 $log->info("Executing bulk import command");
 my $result = system($sqlite_cmd);
 
-# Additional debugging: capture and log any import errors
-my $error_log_cmd = qq{
-sqlite3 "$db_file" <<'EOF' 2>&1
-.mode tabs
-.import "$temp_file" temp_test_import
-.quit
-EOF
-};
-my $error_output = `$error_log_cmd`;
-if ($error_output =~ /INSERT failed|datatype mismatch/i) {
-    $log->warn("SQLite import errors detected:");
-    $log->warn($error_output);
-}
+# Import error checking removed to avoid duplicate data loading
+# For 3M+ row datasets, we rely on the main import verification below
 
 if ($result == 0) {
     $log->info("Successfully loaded " . ($recordid - 1) . " records into database");

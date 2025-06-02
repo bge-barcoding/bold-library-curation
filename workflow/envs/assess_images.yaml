@@ -2,13 +2,13 @@ name: assess_images
 channels:
   - conda-forge
   - bioconda
-  - eumetsat
   - defaults
 dependencies:
+  - perl=5.32.*
   - perl-log-log4perl
   - perl-bio-phylo-forest-dbtree
   - perl-json
   - perl-libwww-perl
-  - perl-data-dumper
   - perl-text-csv
   - perl-lwp-protocol-https
+  # Removed perl-data-dumper as it's core perl and can cause conflicts

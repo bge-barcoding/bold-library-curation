@@ -258,3 +258,27 @@ CREATE INDEX IF NOT EXISTS idx_bold_ranks_ranking_sumscore ON bold_ranks(ranking
 CREATE INDEX IF NOT EXISTS idx_bold_country_species ON bold("country/ocean", species);
 CREATE INDEX IF NOT EXISTS idx_bold_bin_uri ON bold(bin_uri);
 CREATE INDEX IF NOT EXISTS idx_bold_species ON bold(species);
+
+-- Manual curation table for curator annotations and status tracking
+CREATE TABLE IF NOT EXISTS "manual_curation" (
+    "curation_id" INTEGER PRIMARY KEY,     -- Primary key for this table
+    "recordid" INTEGER NOT NULL,           -- Foreign key to bold table
+    "processid" TEXT NOT NULL,             -- Redundant but useful for direct lookups
+    "url" TEXT NOT NULL,                   -- Generated BOLD portal URL
+    "status" TEXT,                         -- Curation status
+    "additionalStatus" TEXT,               -- Additional status information
+    "curator_notes" TEXT,                  -- Free-form curator notes
+    "created_at" TEXT DEFAULT (datetime('now')),  -- When record was created
+    "updated_at" TEXT DEFAULT (datetime('now')),  -- When record was last updated
+    
+    FOREIGN KEY(recordid) REFERENCES bold(recordid),
+    
+    -- Ensure unique curation record per BOLD record
+    CONSTRAINT unique_curation_per_record UNIQUE (recordid)
+);
+
+-- Indexes for manual curation table performance
+CREATE INDEX IF NOT EXISTS idx_manual_curation_recordid ON manual_curation(recordid);
+CREATE INDEX IF NOT EXISTS idx_manual_curation_processid ON manual_curation(processid);
+CREATE INDEX IF NOT EXISTS idx_manual_curation_status ON manual_curation(status);
+CREATE INDEX IF NOT EXISTS idx_manual_curation_url ON manual_curation(url);

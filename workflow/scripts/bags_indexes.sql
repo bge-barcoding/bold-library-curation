@@ -1,5 +1,11 @@
 -- Additional indexes specifically for BAGS analysis optimization
 
+-- Enable WAL mode first (before creating indexes)
+PRAGMA journal_mode = WAL;
+PRAGMA synchronous = NORMAL;
+PRAGMA cache_size = -64000;
+PRAGMA temp_store = MEMORY;
+
 -- Composite index for BIN sharing queries (most critical)
 CREATE INDEX IF NOT EXISTS "bin_taxon_level_idx" ON bold ("bin_uri", "taxonid");
 
@@ -24,7 +30,3 @@ ANALYZE taxa;
 
 -- Enable query planner optimizations
 PRAGMA optimize;
-PRAGMA journal_mode = WAL;  -- Enable Write-Ahead Logging for better concurrency
-PRAGMA synchronous = NORMAL;  -- Balance safety vs performance
-PRAGMA cache_size = -64000;   -- 64MB cache
-PRAGMA temp_store = MEMORY;   -- Store temporary tables in memory

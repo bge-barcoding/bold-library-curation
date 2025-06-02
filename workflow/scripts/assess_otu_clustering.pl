@@ -40,8 +40,8 @@ if ($help || !$db_file) {
     exit 1;
 }
 
-# Convert threshold to percentage for VSEARCH
-my $vsearch_threshold = $threshold * 100;
+# VSEARCH expects threshold as decimal (0.0-1.0), not percentage
+my $vsearch_threshold = $threshold;
 
 # Logging function
 sub log_message {
@@ -134,18 +134,31 @@ my $sth = $dbh->prepare($seq_query);
 $sth->execute();
 
 my $seq_count = 0;
+my $filtered_count = 0;
 my @record_ids;
 
 while (my ($recordid, $sequence) = $sth->fetchrow_array()) {
     # Clean sequence - remove whitespace and convert to uppercase
-    $sequence =~ s/\s+//g;
+    $sequence =~ s/\s+//g;  # Remove whitespace
     $sequence = uc($sequence);
     
-    # Skip if sequence contains non-ACGT characters (keep only valid nucleotides)
-    next if $sequence =~ /[^ACGT]/;
+    # Trim leading and trailing gaps (alignment artifacts) but preserve internal gaps as N
+    $sequence =~ s/^-+//;   # Remove leading gaps
+    $sequence =~ s/-+$//;   # Remove trailing gaps
+    $sequence =~ s/-/N/g;   # Replace any remaining internal gaps with N (unknown nucleotide)
+    
+    # Only skip sequences with invalid characters (not IUPAC nucleotide codes)
+    # VSEARCH accepts all IUPAC codes: ACGTURYSWKMDBHVN
+    if ($sequence =~ /[^ACGTURYSWKMDBHVN]/) {
+        $filtered_count++;
+        next;
+    }
     
     # Skip very short sequences
-    next if length($sequence) < 100;
+    if (length($sequence) < 100) {
+        $filtered_count++;
+        next;
+    }
     
     print $fasta_fh ">$recordid\n$sequence\n";
     push @record_ids, $recordid;
@@ -160,6 +173,9 @@ close($fasta_fh);
 $sth->finish();
 
 log_message('INFO', "Extracted $seq_count valid sequences");
+if ($filtered_count > 0) {
+    log_message('INFO', "Filtered out $filtered_count sequences (invalid characters or too short)");
+}
 
 if ($seq_count == 0) {
     log_message('ERROR', "No valid sequences found for clustering");

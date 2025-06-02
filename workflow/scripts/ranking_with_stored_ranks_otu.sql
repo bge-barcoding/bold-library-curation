@@ -31,9 +31,102 @@ WITH PivotedCriteria AS (
     GROUP BY
         bc.recordid
 )
--- Main query to select from bold and join on pivoted criteria, BAGS grades, haplotypes, OTUs, country representatives, and pre-calculated ranks
+-- Main query to select from bold and join on pivoted criteria, BAGS grades, haplotypes, OTUs, country representatives, pre-calculated ranks, and manual curation
 SELECT
-    b.*,
+    -- Manual curation fields at the front
+    mc.url,
+    mc.status,
+    mc.additionalStatus,
+    mc.curator_notes,
+    -- Key ranking fields
+    br.sumscore,            -- Use pre-calculated sumscore from bold_ranks
+    bags.bags_grade AS BAGS,
+    br.ranking,             -- Use pre-calculated ranking from bold_ranks
+    CASE 
+        WHEN cr.recordid IS NOT NULL THEN 'Yes'
+        ELSE 'No'
+    END AS country_representative,  -- Indicate if record is a country representative
+    -- Original bold table fields (with renamed columns)
+    b.recordid,
+    b.taxonid,
+    b.processid,
+    b.sampleid,
+    b.fieldid,
+    b.museumid,
+    b.record_id,
+    b.specimenid,
+    b.processid_minted_date,
+    b.bin_uri,
+    b.bin_created_date,
+    b.collection_code,
+    b.inst,
+    b.taxid,
+    b.taxon_name,
+    b.taxon_rank,
+    b.kingdom,
+    b.phylum,
+    b."class",
+    b."order",
+    b.family,
+    b.subfamily,
+    b.tribe,
+    b.genus,
+    b.species,
+    b.subspecies,
+    b.species_reference,
+    b.identification,
+    b.identification_method,
+    b.identification_rank,
+    b.identified_by,
+    b.identifier_email,
+    b.taxonomy_notes,
+    b.sex,
+    b.reproduction,
+    b.life_stage,
+    b.short_note,
+    b.notes,
+    b.voucher_type,
+    b.tissue_type,
+    b.specimen_linkout,
+    b.associated_specimens,
+    b.associated_taxa,
+    b.collectors,
+    b.collection_date_start,
+    b.collection_date_end,
+    b.collection_event_id,
+    b.collection_time,
+    b.collection_notes,
+    b.geoid,
+    b."country/ocean" AS country_ocean,
+    b.country_iso,
+    b."province/state" AS province_state,
+    b.region,
+    b.sector,
+    b.site,
+    b.site_code,
+    b.coord,
+    b.coord_accuracy,
+    b.coord_source,
+    b.elev,
+    b.elev_accuracy,
+    b."depth",
+    b.depth_accuracy,
+    b.habitat,
+    b.sampling_protocol,
+    b.nuc,
+    b.nuc_basecount,
+    b.insdc_acs,
+    b.funding_src,
+    b.marker_code,
+    b.primers_forward,
+    b.primers_reverse,
+    b.sequence_run_site,
+    b.sequence_upload_date,
+    b.bold_recordset_code_arr AS recordset_code_arr,
+    b.sovereign_inst,
+    b.realm,
+    b.biome,
+    b.ecoregion,
     pc.SPECIES_ID,
     pc.TYPE_SPECIMEN,
     pc.SEQ_QUALITY,
@@ -51,16 +144,11 @@ SELECT
     pc.PUBLIC_VOUCHER,
     pc.MUSEUM_ID,
     bh.haplotype_id,
-    bo.otu_id,              -- Include OTU_ID from bold_otus table
-    br.sumscore,            -- Use pre-calculated sumscore from bold_ranks
-    bags.bags_grade,
-    br.ranking,             -- Use pre-calculated ranking from bold_ranks
-    CASE 
-        WHEN cr.recordid IS NOT NULL THEN 'Yes'
-        ELSE 'No'
-    END AS country_representative  -- NEW: Indicate if record is a country representative
+    bo.otu_id              -- Include OTU_ID from bold_otus table
 FROM
     bold b
+LEFT JOIN
+    manual_curation mc ON b.recordid = mc.recordid    -- Join with manual curation data
 LEFT JOIN
     PivotedCriteria pc ON b.recordid = pc.recordid
 LEFT JOIN

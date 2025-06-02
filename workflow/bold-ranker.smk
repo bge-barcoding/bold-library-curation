@@ -47,9 +47,12 @@ def get_taxonomy_dependency():
     """Return appropriate dependency based on target list usage"""
     results_dir = get_results_dir()
     if config.get("USE_TARGET_LIST", False):
-        return f"{results_dir}/target_loaded.ok"
+        base_dep = f"{results_dir}/target_loaded.ok"
     else:
-        return f"{results_dir}/taxonomy_loaded.ok"
+        base_dep = f"{results_dir}/taxonomy_loaded.ok"
+    
+    # All assessment rules wait for database optimization to complete
+    return [base_dep, f"{results_dir}/bags_optimized.ok"]
 
 # Ensure configured directories exist
 # ----------------------------------
@@ -656,7 +659,7 @@ rule optimize_bags_database:
     """Apply BAGS-specific database optimizations for improved performance"""
     input:
         db=get_db_file(),
-        taxonomy_ok=get_taxonomy_dependency()
+        taxonomy_ok=lambda wildcards: f"{get_results_dir()}/target_loaded.ok" if config.get("USE_TARGET_LIST", False) else f"{get_results_dir()}/taxonomy_loaded.ok"
     output:
         f"{get_results_dir()}/bags_optimized.ok"
     log: f"{get_log_dir()}/optimize_bags_database.log"
@@ -665,30 +668,13 @@ rule optimize_bags_database:
         """
         echo "Applying BAGS-specific database optimizations..." > {log}
         
-        sqlite3 {input.db} 2>> {log} <<OPTIMIZE
--- BAGS Performance Optimizations (Phase 1)
-PRAGMA journal_mode = WAL;
-PRAGMA synchronous = NORMAL;
-PRAGMA cache_size = -64000;
-PRAGMA temp_store = MEMORY;
-
--- Apply BAGS-specific indexes
-.read workflow/scripts/bags_indexes.sql
-
--- Update query planner statistics
-ANALYZE bold;
-ANALYZE taxa;
-
--- Final optimization
-PRAGMA optimize;
-.quit
-OPTIMIZE
+        sqlite3 {input.db} < workflow/scripts/bags_indexes.sql 2>> {log}
 
         echo "BAGS database optimization completed on $(date)" >> {log}
         touch {output}
         """
 
-# BAGS (species-level assessment) - SIMPLIFIED OUTPUT WITH ESSENTIAL COLUMNS ONLY
+# BAGS (species-level assessment)
 rule BAGS:
     input:
         db=get_db_file(),
@@ -1061,11 +1047,43 @@ rule select_country_representatives:
         touch {output}
         """
 
+rule populate_manual_curation:
+    """Populate manual_curation table with URLs for all BOLD records"""
+    input:
+        db=get_db_file(),
+        rep_ok=f"{get_results_dir()}/country_representatives_selected.ok"
+    output:
+        f"{get_results_dir()}/manual_curation_populated.ok"
+    conda: "envs/sqlite.yaml"
+    log: f"{get_log_dir()}/populate_manual_curation.log"
+    shell:
+        """
+        echo "=== Starting Manual Curation Table Population ===" > {log}
+        echo "Start time: $(date)" >> {log}
+        echo "Database: {input.db}" >> {log}
+        echo "" >> {log}
+        
+        # Populate manual_curation table with URLs
+        sqlite3 {input.db} < workflow/scripts/populate_manual_curation.sql 2>> {log}
+        
+        # Log statistics
+        echo "" >> {log}
+        echo "Population statistics:" >> {log}
+        sqlite3 {input.db} "SELECT COUNT(*) as total_curation_records FROM manual_curation;" 2>> {log} | while read line; do echo "Total curation records: $line" >> {log}; done
+        sqlite3 {input.db} "SELECT COUNT(*) as records_with_urls FROM manual_curation WHERE url LIKE '%/record/None';" 2>> {log} | while read line; do echo "Records with NULL/empty processid: $line" >> {log}; done
+        
+        echo "" >> {log}
+        echo "=== Manual Curation Table Population Completed ===" >> {log}
+        echo "End time: $(date)" >> {log}
+        
+        touch {output}
+        """
+
 rule output_filtered_data:
     """Generate final scored and ranked output with all assessments combined including OTUs"""
     input:
         db=get_db_file(),
-        rep_ok=f"{get_results_dir()}/country_representatives_selected.ok"
+        curation_ok=f"{get_results_dir()}/manual_curation_populated.ok"
     output:
         f"{get_results_dir()}/result_output.tsv"
     conda: "envs/sqlite.yaml"

@@ -4,7 +4,7 @@ channels:
   - bioconda
   - defaults
 dependencies:
-  - perl=5.32
+  - perl=5.32.*        # Less restrictive
   - perl-dbi
   - perl-dbd-sqlite
-  - vsearch=2.22.1
+  - vsearch=2.22.1     # Keep specific version for reproducibility
