@@ -310,11 +310,11 @@ class BOLDStatsGenerator:
         query = """
         SELECT 
             COUNT(*) as total_representatives,
-            COUNT(DISTINCT country_iso) as countries_represented,
-            COUNT(DISTINCT species) as species_represented,
-            AVG(sumscore) as avg_sumscore,
-            AVG(ranking) as avg_ranking
-        FROM country_representatives
+            COUNT(DISTINCT cr.country_iso) as countries_represented,
+            COUNT(DISTINCT cr.species) as species_represented,
+            AVG(cr.sumscore) as avg_sumscore,
+            AVG(cr.ranking) as avg_ranking
+        FROM country_representatives cr
         """
         try:
             result = pd.read_sql_query(query, self.conn)
@@ -384,11 +384,11 @@ class BOLDStatsGenerator:
             # Curation categories
             self._create_curation_page(pdf)
             
-            # Taxonomic breakdown
-            self._create_taxonomic_pages(pdf)
-            
             # Country representatives
             self._create_country_representatives_page(pdf)
+            
+            # Taxonomic breakdown
+            self._create_taxonomic_pages(pdf)
             
             # Additional statistics
             self._create_additional_stats_page(pdf)
@@ -415,7 +415,7 @@ class BOLDStatsGenerator:
         summary_text = f"""
 SUMMARY STATISTICS
 
-Records processed: {self.stats.get('records_processed', 'N/A'):,}
+Records processed: {self.stats.get('records_processed', 'N/A')}
 Total records: {self.stats.get('total_records', 0):,}
 Unique species: {self.stats.get('species_count', 0):,}
 Unique BINs: {self.stats.get('bins_count', 0):,}
@@ -431,9 +431,9 @@ Manual intervention: {self.stats.get('manual_intervention', 0):,}
 
 COUNTRY REPRESENTATIVES
 
-Total representatives: {country_reps.get('total_representatives', 'N/A'):,}
-Countries represented: {country_reps.get('countries_represented', 'N/A'):,}
-Species represented: {country_reps.get('species_represented', 'N/A'):,}
+Total representatives: {country_reps.get('total_representatives', 'N/A')}
+Countries represented: {country_reps.get('countries_represented', 'N/A')}
+Species represented: {country_reps.get('species_represented', 'N/A')}
         """
         
         ax.text(0.1, 0.9, summary_text, transform=ax.transAxes, fontsize=11,
@@ -515,8 +515,16 @@ Species represented: {country_reps.get('species_represented', 'N/A'):,}
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11, 8.5))
         
         df = self.stats['sumscore_distribution']
-        wedges, texts, autotexts = ax1.pie(df['count'], labels=df['sumscore'], autopct='%1.1f%%')
+        bars = ax1.bar(df['sumscore'], df['count'])
+        ax1.set_xlabel('Sumscore')
+        ax1.set_ylabel('Number of Records')
         ax1.set_title('Sumscore Distribution')
+        
+        # Add value labels on bars
+        for bar in bars:
+            height = bar.get_height()
+            ax1.text(bar.get_x() + bar.get_width()/2., height,
+                    f'{int(height)}', ha='center', va='bottom')
         
         ax2.axis('tight')
         ax2.axis('off')
@@ -537,32 +545,42 @@ Species represented: {country_reps.get('species_represented', 'N/A'):,}
         if not self.stats['criteria_distribution']:
             return
         
-        criteria_items = list(self.stats['criteria_distribution'].items())
+        # Define the specific order for criteria across two pages
+        page_1_criteria = [
+            'SPECIES_ID', 'TYPE_SPECIMEN', 'SEQ_QUALITY', 'HAS_IMAGE',
+            'ID_METHOD', 'PUBLIC_VOUCHER', 'INSTITUTION', 'MUSEUM_ID'
+        ]
         
-        for page_start in range(0, len(criteria_items), 4):
-            page_criteria = criteria_items[page_start:page_start+4]
-            
-            fig, axes = plt.subplots(2, 2, figsize=(11, 8.5))
+        page_2_criteria = [
+            'COUNTRY', 'REGION', 'SECTOR', 'SITE',
+            'COORD', 'COLLECTORS', 'COLLECTION_DATE', 'IDENTIFIER'
+        ]
+        
+        # Create pages with 8 criteria each
+        for page_num, criteria_list in enumerate([page_1_criteria, page_2_criteria], 1):
+            fig, axes = plt.subplots(2, 4, figsize=(16, 8.5))
             axes = axes.flatten()
             
-            for i, (criterion_name, df) in enumerate(page_criteria):
-                if i >= 4:
-                    break
-                    
+            for i, criterion_name in enumerate(criteria_list):
                 ax = axes[i]
                 
-                if not df.empty:
-                    colors = ['red', 'green']
-                    wedges, texts, autotexts = ax.pie(df['count'], 
-                                                     labels=df['status_label'], 
-                                                     autopct='%1.1f%%',
-                                                     colors=colors)
+                # Check if we have data for this criterion
+                if criterion_name in self.stats['criteria_distribution']:
+                    df = self.stats['criteria_distribution'][criterion_name]
+                    if not df.empty:
+                        colors = ['red', 'green']
+                        wedges, texts, autotexts = ax.pie(df['count'], 
+                                                         labels=df['status_label'], 
+                                                         autopct='%1.1f%%',
+                                                         colors=colors)
+                    else:
+                        ax.text(0.5, 0.5, 'No data', ha='center', va='center')
+                else:
+                    ax.text(0.5, 0.5, 'No data', ha='center', va='center')
+                
                 ax.set_title(criterion_name, fontsize=10)
             
-            for i in range(len(page_criteria), 4):
-                axes[i].axis('off')
-            
-            plt.suptitle('Criteria Distribution (Pass/Fail)', fontsize=16, fontweight='bold')
+            plt.suptitle(f'Criteria Distribution (Pass/Fail) - Page {page_num}', fontsize=16, fontweight='bold')
             plt.tight_layout()
             pdf.savefig(fig, bbox_inches='tight')
             plt.close()
@@ -616,7 +634,9 @@ Species represented: {country_reps.get('species_represented', 'N/A'):,}
     
     def _create_taxonomic_pages(self, pdf):
         """Create taxonomic breakdown pages"""
-        for level, df in self.stats['taxonomic_breakdown'].items():
+        # First create pages for phylum, class, and order
+        for level in ['phylum', 'class', 'order']:
+            df = self.stats['taxonomic_breakdown'].get(level, pd.DataFrame())
             if df.empty:
                 continue
                 
@@ -672,15 +692,123 @@ Species represented: {country_reps.get('species_represented', 'N/A'):,}
             plt.tight_layout()
             pdf.savefig(fig, bbox_inches='tight')
             plt.close()
+        
+        # Now create family breakdown pages for each order
+        self._create_family_by_order_pages(pdf)
+    
+    def _create_family_by_order_pages(self, pdf):
+        """Create family breakdown pages for each order"""
+        # Get all orders from the database
+        orders_query = """
+        SELECT DISTINCT `order`
+        FROM bold 
+        WHERE `order` IS NOT NULL AND family IS NOT NULL
+        ORDER BY `order`
+        """
+        
+        try:
+            orders_df = pd.read_sql_query(orders_query, self.conn)
+            
+            for _, order_row in orders_df.iterrows():
+                order_name = order_row['order']
+                
+                # Get family breakdown for this order
+                family_query = f"""
+                SELECT family, COUNT(*) as record_count 
+                FROM bold 
+                WHERE `order` = '{order_name}' AND family IS NOT NULL 
+                GROUP BY family 
+                ORDER BY record_count DESC
+                """
+                
+                species_query = f"""
+                SELECT family, COUNT(DISTINCT species) as species_count 
+                FROM bold 
+                WHERE `order` = '{order_name}' AND family IS NOT NULL AND species IS NOT NULL
+                GROUP BY family 
+                ORDER BY species_count DESC
+                """
+                
+                try:
+                    records_df = pd.read_sql_query(family_query, self.conn)
+                    species_df = pd.read_sql_query(species_query, self.conn)
+                    
+                    # Merge the dataframes
+                    combined = pd.merge(records_df, species_df, on='family', how='outer').fillna(0)
+                    
+                    if combined.empty:
+                        continue
+                    
+                    # Limit to top 15 families for readability
+                    df_top = combined.head(15)
+                    
+                    fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(11, 8.5))
+                    
+                    bars1 = ax1.barh(range(len(df_top)), df_top['record_count'])
+                    ax1.set_yticks(range(len(df_top)))
+                    ax1.set_yticklabels(df_top['family'], fontsize=8)
+                    ax1.set_xlabel('Number of Records')
+                    ax1.set_title(f'Records by Family')
+                    ax1.invert_yaxis()
+                    
+                    bars2 = ax2.barh(range(len(df_top)), df_top['species_count'])
+                    ax2.set_yticks(range(len(df_top)))
+                    ax2.set_yticklabels(df_top['family'], fontsize=8)
+                    ax2.set_xlabel('Number of Species')
+                    ax2.set_title(f'Species by Family')
+                    ax2.invert_yaxis()
+                    
+                    ax3.axis('tight')
+                    ax3.axis('off')
+                    table_data = [[family, records, species] for family, records, species in 
+                                 zip(df_top['family'], df_top['record_count'], df_top['species_count'])]
+                    table = ax3.table(cellText=table_data, 
+                                     colLabels=['Family', 'Records', 'Species'],
+                                     cellLoc='left', loc='center')
+                    table.auto_set_font_size(False)
+                    table.set_fontsize(8)
+                    table.scale(1, 1.5)
+                    
+                    total_records = combined['record_count'].sum()
+                    total_species = combined['species_count'].sum()
+                    unique_families = len(combined)
+                    
+                    summary_text = f"""
+Family Summary ({order_name}):
+• Unique families: {unique_families}
+• Total records: {total_records:,}
+• Total species: {total_species:,}
+• Avg records per family: {total_records/unique_families:.1f}
+• Avg species per family: {total_species/unique_families:.1f}
+                    """
+                    
+                    ax4.text(0.1, 0.9, summary_text, transform=ax4.transAxes, fontsize=10,
+                            verticalalignment='top', fontfamily='monospace')
+                    ax4.set_xlim(0, 1)
+                    ax4.set_ylim(0, 1)
+                    ax4.axis('off')
+                    
+                    plt.suptitle(f'Taxonomic Breakdown: Family ({order_name})', fontsize=16, fontweight='bold')
+                    plt.tight_layout()
+                    pdf.savefig(fig, bbox_inches='tight')
+                    plt.close()
+                    
+                except Exception as e:
+                    print(f"Error creating family breakdown for order {order_name}: {e}")
+                    continue
+                    
+        except Exception as e:
+            print(f"Error getting orders for family breakdown: {e}")
     
     def _create_country_representatives_page(self, pdf):
         """Create country representatives analysis page"""
         fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(11, 8.5))
         
         query = """
-        SELECT country_iso, COUNT(*) as rep_count
-        FROM country_representatives
-        GROUP BY country_iso
+        SELECT COALESCE(b.`country/ocean`, cr.country_iso) as country_name, COUNT(*) as rep_count
+        FROM country_representatives cr
+        LEFT JOIN bold b ON cr.recordid = b.recordid
+        GROUP BY COALESCE(b.`country/ocean`, cr.country_iso)
         ORDER BY rep_count DESC
         LIMIT 15
         """
@@ -689,7 +817,7 @@ Species represented: {country_reps.get('species_represented', 'N/A'):,}
             
             bars1 = ax1.barh(range(len(country_counts)), country_counts['rep_count'])
             ax1.set_yticks(range(len(country_counts)))
-            ax1.set_yticklabels(country_counts['country_iso'], fontsize=8)
+            ax1.set_yticklabels(country_counts['country_name'], fontsize=8)
             ax1.set_xlabel('Number of Representatives')
             ax1.set_title('Top Countries by Representatives')
             ax1.invert_yaxis()
