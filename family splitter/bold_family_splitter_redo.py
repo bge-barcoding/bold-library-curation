@@ -36,13 +36,11 @@ class BoldFamilySplitter:
         self.output_base = Path(output_base)
         self.threshold = threshold
         
-        # Handle directory input - look for files in the directory
-        if self.input_path.is_dir():
-            print(f"Directory provided: {self.input_path}")
-            self.input_path, self.is_database = self._resolve_input_file(self.input_path / "dummy")
-        else:
-            # Resolve specific file input with new priority logic
-            self.input_path, self.is_database = self._resolve_input_file(input_path)
+        # Prefer database file if both .db and .tsv exist
+        self.input_path, self.is_database = self._resolve_input_file(input_path)
+        
+        # Get the main table name for database files
+        self.table_name = self._get_main_table_name() if self.is_database else 'records'
         
         self.family_stats = {}
         self.taxonomy_cache = {}
@@ -53,47 +51,76 @@ class BoldFamilySplitter:
         # Update threshold in config
         CONFIG['FAMILY_SIZE_THRESHOLD'] = threshold
 
+    @staticmethod
+    def find_bold_db(start_path=None):
+        """
+        Convenience method to find bold.db in common locations.
+        Returns the path to bold.db if found, None otherwise.
+        """
+        if start_path is None:
+            start_path = Path(__file__).parent.parent  # Project root
+        else:
+            start_path = Path(start_path)
+        
+        # Common locations for bold.db
+        search_locations = [
+            start_path / 'results' / 'results' / 'bold.db',
+            start_path / 'results' / 'bold.db',
+            start_path / 'bold.db',
+            Path.cwd() / 'results' / 'results' / 'bold.db',
+            Path.cwd() / 'results' / 'bold.db',
+            Path.cwd() / 'bold.db',
+        ]
+        
+        # Add all bold.db files found in results subdirectories
+        try:
+            results_dir = start_path / 'results'
+            if results_dir.exists():
+                search_locations.extend(results_dir.glob('*/bold.db'))
+                search_locations.extend(results_dir.glob('**/bold.db'))
+        except:
+            pass
+        
+        for db_path in search_locations:
+            if db_path.exists() and db_path.is_file():
+                try:
+                    # Verify it's a valid SQLite database
+                    with sqlite3.connect(db_path) as conn:
+                        cursor = conn.cursor()
+                        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' LIMIT 1")
+                        cursor.fetchone()
+                    return db_path
+                except:
+                    continue
+        
+        return None
+
     def _resolve_input_file(self, input_path):
         """
-        Resolve input file with priority: bold.db → any other .db → result_output.tsv → original input
+        Resolve input file, preferring database over TSV if both exist.
+        Enhanced logic to find bold.db in results directory structure.
         Returns tuple of (resolved_path, is_database)
         """
         input_path = Path(input_path)
-        input_dir = input_path.parent
         
-        print(f"Resolving input file from: {input_path}")
-        
-        # Priority 1: Look for bold.db in the same directory
-        bold_db_path = input_dir / "bold.db"
-        if bold_db_path.exists():
-            print(f"Found bold.db, using: {bold_db_path}")
-            return bold_db_path, True
-        
-        # Priority 2: Look for any other .db file in the same directory
-        db_files = list(input_dir.glob("*.db"))
-        if db_files:
-            # Use the first .db file found (excluding bold.db which we already checked)
-            other_db = db_files[0]
-            print(f"Found other database file, using: {other_db}")
-            return other_db, True
-        
-        # Priority 3: Look for result_output.tsv in the same directory
-        result_output_path = input_dir / "result_output.tsv"
-        if result_output_path.exists():
-            print(f"Found result_output.tsv, using: {result_output_path}")
-            return result_output_path, False
-        
-        # Priority 4: If input is explicitly a database and exists, use it
+        # If input is explicitly a database and exists, use it
         if str(input_path).endswith('.db') and input_path.exists():
-            print(f"Using specified database file: {input_path}")
+            print(f"Using database file: {input_path}")
             return input_path, True
         
-        # Priority 5: If input is a TSV and exists, use it
-        if (str(input_path).endswith('.tsv') or str(input_path).endswith('.txt')) and input_path.exists():
-            print(f"Using specified TSV file: {input_path}")
-            return input_path, False
+        # If input is explicitly a TSV, check if corresponding DB exists
+        if str(input_path).endswith('.tsv') or str(input_path).endswith('.txt'):
+            # Look for corresponding .db file in same directory
+            db_path = input_path.with_suffix('.db')
+            if db_path.exists():
+                print(f"Found corresponding database file, using: {db_path}")
+                print(f"(instead of TSV: {input_path})")
+                return db_path, True
+            else:
+                print(f"Using TSV file: {input_path}")
+                return input_path, False
         
-        # Priority 6: Try to detect file type if it exists without clear extension
+        # For other extensions or no extension, try both possibilities
         if input_path.exists():
             # Check if it's actually a database by trying to open it
             try:
@@ -104,29 +131,77 @@ class BoldFamilySplitter:
                 print(f"Detected as database file: {input_path}")
                 return input_path, True
             except:
-                print(f"Treating as TSV file: {input_path}")
+                print(f"Using as TSV file: {input_path}")
                 return input_path, False
         
-        # Priority 7: Look for alternatives based on input base name
+        # Enhanced search for bold.db in results directory structure
+        print(f"Input file not found, searching for bold.db...")
+        
+        # Get the script's directory and project root
+        script_dir = Path(__file__).parent
+        project_root = script_dir.parent
+        
+        # Define search paths for bold.db (in priority order)
+        search_paths = [
+            # Direct paths
+            input_path.with_suffix('.db'),
+            input_path / 'bold.db' if input_path.is_dir() else None,
+            
+            # Results directory structure
+            project_root / 'results' / 'results' / 'bold.db',
+            project_root / 'results' / 'bold.db',
+            
+            # Search in results subdirectories
+            *[p for p in (project_root / 'results').glob('*/bold.db') if p.is_file()],
+            *[p for p in (project_root / 'results').glob('**/bold.db') if p.is_file()],
+            
+            # If input path is relative, try from current directory
+            Path.cwd() / input_path.with_suffix('.db'),
+            Path.cwd() / 'results' / 'bold.db',
+            Path.cwd() / 'results' / 'results' / 'bold.db',
+        ]
+        
+        # Remove None values and duplicates while preserving order
+        search_paths = list(dict.fromkeys(p for p in search_paths if p is not None))
+        
+        # Try each search path
+        for db_path in search_paths:
+            if db_path.exists() and db_path.is_file():
+                # Verify it's actually a database
+                try:
+                    with sqlite3.connect(db_path) as conn:
+                        cursor = conn.cursor()
+                        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' LIMIT 1")
+                        cursor.fetchone()
+                    print(f"Found database file: {db_path}")
+                    return db_path, True
+                except:
+                    continue
+        
+        # Fall back to TSV variants in original location
         base_path = input_path.with_suffix('')
-        
-        # Try .db variants
-        for db_name in ['bold.db', f'{base_path.name}.db']:
-            db_path = input_dir / db_name
-            if db_path.exists():
-                print(f"Found alternative database file: {db_path}")
-                return db_path, True
-        
-        # Fall back to TSV variants
         for ext in ['.tsv', '.txt', '.csv']:
             tsv_path = base_path.with_suffix(ext)
             if tsv_path.exists():
-                print(f"Found alternative TSV file: {tsv_path}")
+                print(f"Found TSV file: {tsv_path}")
+                return tsv_path, False
+        
+        # Search for TSV files in results directory
+        tsv_search_paths = [
+            project_root / 'results' / 'results' / input_path.with_suffix('.tsv').name,
+            project_root / 'results' / input_path.with_suffix('.tsv').name,
+        ]
+        
+        for tsv_path in tsv_search_paths:
+            if tsv_path.exists():
+                print(f"Found TSV file in results: {tsv_path}")
                 return tsv_path, False
         
         # If nothing found, return original path (will cause error later)
-        print(f"WARNING: No suitable file found in directory {input_dir}")
-        print(f"Falling back to original input: {input_path}")
+        print(f"No suitable file found, using original: {input_path}")
+        print(f"Searched in the following locations:")
+        for path in search_paths[:10]:  # Show first 10 search paths
+            print(f"  - {path}")
         return input_path, str(input_path).endswith('.db')
 
     def run(self):
@@ -151,11 +226,50 @@ class BoldFamilySplitter:
             print(f'ERROR: {error}')
             raise error
 
+    def _get_main_table_name(self):
+        """
+        Determine the main table name in the database.
+        Returns the table name that contains the taxonomic data.
+        """
+        if not self.is_database:
+            return None
+            
+        with sqlite3.connect(self.input_path) as conn:
+            cursor = conn.cursor()
+            
+            # Get all table names
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+            tables = [row[0] for row in cursor.fetchall()]
+            
+            # Priority order for table names
+            table_candidates = ['records', 'bold', 'data', 'taxonomy', 'main']
+            
+            for candidate in table_candidates:
+                if candidate in tables:
+                    # Verify it has the expected columns
+                    try:
+                        cursor.execute(f"PRAGMA table_info({candidate})")
+                        columns = [col[1].lower() for col in cursor.fetchall()]
+                        # Check for essential columns
+                        if 'family' in columns or 'processid' in columns:
+                            return candidate
+                    except:
+                        continue
+            
+            # If no standard name found, use the first table
+            if tables:
+                return tables[0]
+            
+            return None
+
     def analyze_families(self):
         """Analyze family sizes and collect taxonomy information"""
         print('\nAnalyzing family sizes and taxonomy...')
         
         if self.is_database:
+            if not self.table_name:
+                raise ValueError("Could not determine main table name in database")
+            print(f"Using table: {self.table_name}")
             self._analyze_families_from_db()
         else:
             self._analyze_families_from_tsv()
@@ -176,7 +290,7 @@ class BoldFamilySplitter:
                 SELECT 
                     COALESCE(family, '{CONFIG['UNKNOWN_FAMILY']}') as family,
                     COUNT(*) as count
-                FROM bold 
+                FROM {self.table_name} 
                 GROUP BY family
                 ORDER BY count DESC
             """)
@@ -195,7 +309,7 @@ class BoldFamilySplitter:
                         COALESCE("order", '{CONFIG['UNKNOWN_ORDER']}') as order_name,
                         COALESCE(family, '{CONFIG['UNKNOWN_FAMILY']}') as family,
                         subfamily
-                    FROM bold 
+                    FROM {self.table_name} 
                     WHERE COALESCE(family, '{CONFIG['UNKNOWN_FAMILY']}') = ?
                     LIMIT 1
                 """, (family,))
@@ -210,7 +324,7 @@ class BoldFamilySplitter:
                         SELECT 
                             COALESCE(subfamily, '{CONFIG['UNKNOWN_SUBFAMILY']}') as subfamily,
                             COUNT(*) as count
-                        FROM bold 
+                        FROM {self.table_name} 
                         WHERE COALESCE(family, '{CONFIG['UNKNOWN_FAMILY']}') = ?
                         GROUP BY subfamily
                         ORDER BY count DESC
@@ -374,15 +488,20 @@ class BoldFamilySplitter:
         try:
             # Copy schema
             source_cursor = source_conn.cursor()
-            source_cursor.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='bold'")
+            source_cursor.execute(f"SELECT sql FROM sqlite_master WHERE type='table' AND name='{self.table_name}'")
             schema_row = source_cursor.fetchone()
             
             if schema_row:
-                target_conn.execute(schema_row[0])
+                # Replace the original table name with 'records' in the target database
+                # Handle both quoted and unquoted table names
+                create_sql = schema_row[0]
+                create_sql = create_sql.replace(f'CREATE TABLE "{self.table_name}"', 'CREATE TABLE "records"')
+                create_sql = create_sql.replace(f'CREATE TABLE {self.table_name}', 'CREATE TABLE records')
+                target_conn.execute(create_sql)
             
             # Copy data
             source_cursor.execute(f"""
-                SELECT * FROM bold 
+                SELECT * FROM {self.table_name} 
                 WHERE COALESCE(family, '{CONFIG['UNKNOWN_FAMILY']}') = ?
             """, (family,))
             
@@ -392,11 +511,11 @@ class BoldFamilySplitter:
             
             if rows:
                 # Get column info to build insert statement
-                source_cursor.execute("PRAGMA table_info(bold)")
+                source_cursor.execute(f"PRAGMA table_info({self.table_name})")
                 columns = [row[1] for row in source_cursor.fetchall()]
                 placeholders = ','.join(['?' for _ in columns])
                 
-                target_cursor.executemany(f"INSERT INTO bold VALUES ({placeholders})", rows)
+                target_cursor.executemany(f"INSERT INTO records VALUES ({placeholders})", rows)
             
             # Create indexes
             self._create_indexes(target_conn)
@@ -414,15 +533,20 @@ class BoldFamilySplitter:
         try:
             # Copy schema
             source_cursor = source_conn.cursor()
-            source_cursor.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='bold'")
+            source_cursor.execute(f"SELECT sql FROM sqlite_master WHERE type='table' AND name='{self.table_name}'")
             schema_row = source_cursor.fetchone()
             
             if schema_row:
-                target_conn.execute(schema_row[0])
+                # Replace the original table name with 'records' in the target database
+                # Handle both quoted and unquoted table names
+                create_sql = schema_row[0]
+                create_sql = create_sql.replace(f'CREATE TABLE "{self.table_name}"', 'CREATE TABLE "records"')
+                create_sql = create_sql.replace(f'CREATE TABLE {self.table_name}', 'CREATE TABLE records')
+                target_conn.execute(create_sql)
             
             # Copy data
             source_cursor.execute(f"""
-                SELECT * FROM bold 
+                SELECT * FROM {self.table_name} 
                 WHERE COALESCE(family, '{CONFIG['UNKNOWN_FAMILY']}') = ? 
                 AND COALESCE(subfamily, '{CONFIG['UNKNOWN_SUBFAMILY']}') = ?
             """, (family, subfamily))
@@ -433,11 +557,11 @@ class BoldFamilySplitter:
             
             if rows:
                 # Get column info to build insert statement
-                source_cursor.execute("PRAGMA table_info(bold)")
+                source_cursor.execute(f"PRAGMA table_info({self.table_name})")
                 columns = [row[1] for row in source_cursor.fetchall()]
                 placeholders = ','.join(['?' for _ in columns])
                 
-                target_cursor.executemany(f"INSERT INTO bold VALUES ({placeholders})", rows)
+                target_cursor.executemany(f"INSERT INTO records VALUES ({placeholders})", rows)
             
             # Create indexes
             self._create_indexes(target_conn)
@@ -504,7 +628,7 @@ class BoldFamilySplitter:
         
         # Create table with all columns as TEXT
         columns_sql = ',\n'.join([f'"{header}" TEXT' for header in unique_headers])
-        create_sql = f"CREATE TABLE bold (\n{columns_sql}\n)"
+        create_sql = f"CREATE TABLE records (\n{columns_sql}\n)"
         
         conn.execute(create_sql)
         
@@ -529,7 +653,7 @@ class BoldFamilySplitter:
             
             # Prepare insert statement
             placeholders = ','.join(['?' for _ in mapped_headers])
-            insert_sql = f"INSERT INTO bold VALUES ({placeholders})"
+            insert_sql = f"INSERT INTO records VALUES ({placeholders})"
             
             # Insert data in batches
             batch_size = 10000
@@ -572,7 +696,7 @@ class BoldFamilySplitter:
                     bin_uri,
                     GROUP_CONCAT(DISTINCT COALESCE(subfamily, '{CONFIG['UNKNOWN_SUBFAMILY']}')) as subfamilies,
                     COUNT(DISTINCT COALESCE(subfamily, '{CONFIG['UNKNOWN_SUBFAMILY']}')) as subfamily_count
-                FROM bold 
+                FROM {self.table_name} 
                 WHERE COALESCE(family, '{CONFIG['UNKNOWN_FAMILY']}') = ? 
                     AND bin_uri IS NOT NULL 
                     AND bin_uri != 'None' 
@@ -595,11 +719,11 @@ class BoldFamilySplitter:
     def _create_indexes(self, conn):
         """Create database indexes for performance"""
         indexes = [
-            'CREATE INDEX IF NOT EXISTS idx_family ON bold(family)',
-            'CREATE INDEX IF NOT EXISTS idx_genus ON bold(genus)',
-            'CREATE INDEX IF NOT EXISTS idx_species ON bold(species)',
-            'CREATE INDEX IF NOT EXISTS idx_bin ON bold(bin_uri)',
-            'CREATE INDEX IF NOT EXISTS idx_processid ON bold(processid)'
+            'CREATE INDEX IF NOT EXISTS idx_family ON records(family)',
+            'CREATE INDEX IF NOT EXISTS idx_genus ON records(genus)',
+            'CREATE INDEX IF NOT EXISTS idx_species ON records(species)',
+            'CREATE INDEX IF NOT EXISTS idx_bin ON records(bin_uri)',
+            'CREATE INDEX IF NOT EXISTS idx_processid ON records(processid)'
         ]
         
         for index_sql in indexes:
@@ -667,18 +791,25 @@ def main():
         epilog="""
 Examples:
   python bold_family_splitter.py bold.db
+  python bold_family_splitter.py bold                    # Auto-finds bold.db
+  python bold_family_splitter.py results/results/bold.db
   python bold_family_splitter.py result_output.tsv --output my_output --threshold 5000
-  python bold_family_splitter.py "C:\\GitHub\\bold-library-curation\\results\\results_test3"
-  python bold_family_splitter.py "C:\\GitHub\\bold-library-curation\\results\\_bags_sub-3\\bold.db"
-  python bold_family_splitter.py data_file  # Will auto-detect .db or .tsv
+  python bold_family_splitter.py "C:\\GitHub\\bold-library-curation\\results\\results\\bold.db"
 
 File Selection Priority:
-  1. bold.db in the same directory (highest priority)
-  2. Any other .db file in the same directory  
-  3. result_output.tsv in the same directory
-  4. The explicitly specified file (if it exists)
-  5. Alternative files with same base name
-  - Database files are preferred for better performance with large datasets
+  1. If you specify a .db file that exists, it will be used directly
+  2. If you specify a base name (like "bold"), it will search for bold.db in:
+     - results/results/bold.db
+     - results/bold.db  
+     - Any subdirectory of results/
+  3. If you specify a .tsv file, it will look for a corresponding .db file first
+  4. Database files are strongly preferred for better performance with large datasets
+
+Auto-Discovery:
+  The script will automatically search common locations for bold.db:
+  - Project results directory structure
+  - Current working directory
+  - All subdirectories under results/
 
 Output Structure:
   output_dir/
@@ -690,19 +821,72 @@ Output Structure:
                   +-- Subfamily1.db
                   +-- Subfamily2.db
                   +-- subfamily_shared_BINs.csv
+
+Note: To find available bold.db files, you can run:
+  python -c "from bold_family_splitter_redo import BoldFamilySplitter; print(BoldFamilySplitter.find_bold_db())"
         """)
     
-    parser.add_argument('input', help='Path to input database (.db), TSV file (.tsv), or directory containing data files. When a directory is provided, files are auto-resolved by priority.')
+    parser.add_argument('input', nargs='?', help='Path to input database (.db) or TSV file (.tsv). Use "bold" to auto-find bold.db in results directory.')
     parser.add_argument('--output', '-o', default='taxonomic_output', 
                        help='Output directory (default: taxonomic_output)')
     parser.add_argument('--threshold', '-t', type=int, default=10000,
                        help='Family size threshold for subfamily splitting (default: 10000)')
+    parser.add_argument('--find-db', action='store_true',
+                       help='Just find and print the location of bold.db, then exit')
     
     args = parser.parse_args()
+    
+    # Handle --find-db option
+    if args.find_db:
+        db_path = BoldFamilySplitter.find_bold_db()
+        if db_path:
+            print(f"Found bold.db at: {db_path}")
+        else:
+            print("No bold.db file found in common locations")
+            print("Searched in:")
+            script_dir = Path(__file__).parent
+            project_root = script_dir.parent
+            search_locations = [
+                project_root / 'results' / 'results' / 'bold.db',
+                project_root / 'results' / 'bold.db',
+                project_root / 'bold.db',
+                Path.cwd() / 'results' / 'results' / 'bold.db',
+                Path.cwd() / 'results' / 'bold.db',
+                Path.cwd() / 'bold.db',
+            ]
+            for loc in search_locations:
+                print(f"  - {loc}")
+        sys.exit(0)
+    
+    # Special case: if input is just "bold", try to auto-find bold.db
+    if args.input and args.input.lower() == 'bold':
+        db_path = BoldFamilySplitter.find_bold_db()
+        if db_path:
+            print(f"Auto-found bold.db at: {db_path}")
+            args.input = str(db_path)
+        else:
+            print('ERROR: Could not auto-find bold.db. Please specify the full path.')
+            sys.exit(1)
+    
+    # Check if input is required but not provided
+    if not args.find_db and not args.input:
+        print('ERROR: Input file path is required (unless using --find-db)')
+        print('\nTip: Try using "bold" as input to auto-find bold.db:')
+        print('  python bold_family_splitter.py bold')
+        print('\nOr use --find-db to locate bold.db:')
+        print('  python bold_family_splitter.py --find-db')
+        sys.exit(1)
     
     # Validate input
     if not os.path.exists(args.input):
         print(f'ERROR: Input file not found: {args.input}')
+        
+        # Suggest using auto-find
+        print('\nTip: Try using "bold" as input to auto-find bold.db:')
+        print('  python bold_family_splitter.py bold')
+        print('\nOr use --find-db to locate bold.db:')
+        print('  python bold_family_splitter.py --find-db')
+        
         sys.exit(1)
     
     try:

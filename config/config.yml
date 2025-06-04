@@ -37,7 +37,24 @@ MARKER: "COI-5P"  # Specify marker code (e.g., "COI-5P") to filter by marker_cod
 PRESCORING_FILTERED_OUTPUT: "test_odonata_large_filtered.tsv"  # Filename only - will be placed in RESULTS_DIR
 
 # Family splitting configuration
-FAMILY_SIZE_THRESHOLD: 10000  # Split families larger than this by subfamily
+# Family size threshold for subfamily splitting (default: 10000)
+FAMILY_SIZE_THRESHOLD: 10000 # Split families larger than this by subfamily
+
+# SLURM Job Array Configuration
+# Number of parallel jobs in the array (default: 64)
+FAMILY_ARRAY_SIZE: 64
+
+# Number of worker threads per job (default: 4)
+# Total cores used = FAMILY_ARRAY_SIZE * WORKERS_PER_JOB
+WORKERS_PER_JOB: 4
+
+# SLURM Resource Allocation per Job
+# Memory per job (default: 8G)
+JOB_MEMORY: "8G"
+
+# Maximum time per job (default: 4 hours)
+JOB_TIME: "04:00:00"
+
 
 # OTU Clustering configuration
 OTU_CLUSTERING_THRESHOLD: 0.99  # Similarity threshold (99%)

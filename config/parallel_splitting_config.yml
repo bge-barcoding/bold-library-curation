@@ -1,0 +1,37 @@
+# Configuration additions for parallel family splitting
+# Add these to your existing config/config.yml file
+
+# Family Database Splitting Configuration
+# =======================================
+
+# Family size threshold for subfamily splitting (default: 10000)
+FAMILY_SIZE_THRESHOLD: 10000
+
+# SLURM Job Array Configuration
+# Number of parallel jobs in the array (default: 64)
+FAMILY_ARRAY_SIZE: 64
+
+# Number of worker threads per job (default: 4)
+# Total cores used = FAMILY_ARRAY_SIZE * WORKERS_PER_JOB
+WORKERS_PER_JOB: 4
+
+# SLURM Resource Allocation per Job
+# Memory per job (default: 8G)
+JOB_MEMORY: "8G"
+
+# Maximum time per job (default: 4 hours)
+JOB_TIME: "04:00:00"
+
+# Example configurations for different cluster sizes:
+# 
+# For smaller datasets or fewer cores:
+# FAMILY_ARRAY_SIZE: 32
+# WORKERS_PER_JOB: 2
+# JOB_MEMORY: "4G"
+# JOB_TIME: "02:00:00"
+#
+# For larger datasets or more cores:
+# FAMILY_ARRAY_SIZE: 128
+# WORKERS_PER_JOB: 8
+# JOB_MEMORY: "16G"
+# JOB_TIME: "08:00:00"
