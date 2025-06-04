@@ -41,6 +41,11 @@ SELECT
     -- Key ranking fields
     br.sumscore,            -- Use pre-calculated sumscore from bold_ranks
     bags.bags_grade AS BAGS,
+	CASE 
+		WHEN bags.bags_grade = 'C' THEN 'BIN splitting: ' || bags.bin_uri
+		WHEN bags.bags_grade = 'E' THEN 'BIN sharing: ' || bags.bin_uri || '; ' || bags.sharers
+		ELSE 'Single BIN: ' || bags.bin_uri
+	END AS "BIN info",
     br.ranking,             -- Use pre-calculated ranking from bold_ranks
     CASE 
         WHEN cr.recordid IS NOT NULL THEN 'Yes'

@@ -36,7 +36,13 @@ FILTER_SPECIES: true  # Only include records with valid species names (not null,
 MARKER: "COI-5P"  # Specify marker code (e.g., "COI-5P") to filter by marker_code field, or null to disable marker filtering
 PRESCORING_FILTERED_OUTPUT: "test_odonata_large_filtered.tsv"  # Filename only - will be placed in RESULTS_DIR
 
+# OTU Clustering configuration
+OTU_CLUSTERING_THRESHOLD: 0.99  # Similarity threshold (99%)
+OTU_CLUSTERING_THREADS: 8       # Number of threads for VSEARCH
+
+# -------------------------------
 # Family splitting configuration
+# -------------------------------
 # Family size threshold for subfamily splitting (default: 10000)
 FAMILY_SIZE_THRESHOLD: 10000 # Split families larger than this by subfamily
 
@@ -55,10 +61,10 @@ JOB_MEMORY: "8G"
 # Maximum time per job (default: 4 hours)
 JOB_TIME: "04:00:00"
 
-
-# OTU Clustering configuration
-OTU_CLUSTERING_THRESHOLD: 0.99  # Similarity threshold (99%)
-OTU_CLUSTERING_THREADS: 8       # Number of threads for VSEARCH
+# Compression settings
+COMPRESSION_WORKERS: 16  # Adjust based on your HPC node specs
+COMPRESS_AFTER_SPLIT: true  # Enable/disable compression
+REMOVE_ORIGINAL_DBS: false  # Keep originals for safety initially
 
 # Note: Output paths are dynamically constructed using RESULTS_DIR and LOG_DIR 
 # in the Snakefile helper functions. Directories are created automatically.

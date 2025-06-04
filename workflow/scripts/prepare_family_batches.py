@@ -22,7 +22,7 @@ def get_family_counts(db_path, threshold=10000):
         COALESCE(kingdom, 'Unknown') as kingdom,
         COALESCE(phylum, 'Unknown') as phylum,
         COALESCE("class", 'Unknown') as class,
-        COALESCE("order", 'Unknown') as order,
+        COALESCE("order", 'Unknown') as "order",
         COALESCE(family, 'Unknown') as family,
         COUNT(*) as record_count,
         COUNT(DISTINCT subfamily) as subfamily_count
@@ -62,18 +62,21 @@ def create_batches(families, num_jobs):
     if not families:
         return []
     
+    # Don't create more batches than families
+    actual_num_jobs = min(num_jobs, len(families))
+    
     # Simple round-robin distribution
-    batches = [[] for _ in range(num_jobs)]
+    batches = [[] for _ in range(actual_num_jobs)]
     
     # Sort families by record count (largest first) for better load balancing
     families.sort(key=lambda x: x['record_count'], reverse=True)
     
     # Distribute families round-robin style
     for i, family in enumerate(families):
-        batch_idx = i % num_jobs
+        batch_idx = i % actual_num_jobs
         batches[batch_idx].append(family)
     
-    # Remove empty batches
+    # All batches should be non-empty now, but filter just in case
     return [batch for batch in batches if batch]
 
 def main():

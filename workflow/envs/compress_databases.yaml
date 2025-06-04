@@ -1,0 +1,6 @@
+name: compress_databases
+channels:
+  - conda-forge
+dependencies:
+  - python=3.9
+  - bc  # for calculations in shell script

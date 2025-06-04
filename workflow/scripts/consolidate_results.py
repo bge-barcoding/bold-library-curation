@@ -34,8 +34,8 @@ def collect_batch_results(batch_dir, output_dir):
 
 def check_missing_batches(batch_dir, results):
     """Check for batches that didn't produce results"""
-    # Find all batch files
-    batch_files = glob.glob(str(Path(batch_dir) / "batch_*.json"))
+    # Find all numbered batch files (exclude batch_summary.json)
+    batch_files = glob.glob(str(Path(batch_dir) / "batch_[0-9]*.json"))
     expected_batches = set()
     
     for batch_file in batch_files:

@@ -53,6 +53,11 @@ def get_complete_ranking_query():
         mc.curator_notes,
         br.sumscore,
         bags.bags_grade AS BAGS,
+        CASE 
+            WHEN bags.bags_grade = 'C' THEN 'BIN splitting: ' || bags.bin_uri
+            WHEN bags.bags_grade = 'E' THEN 'BIN sharing: ' || bags.bin_uri || '; ' || bags.sharers
+            ELSE 'Single BIN: ' || bags.bin_uri
+        END AS "BIN info",
         br.ranking,
         CASE 
             WHEN cr.recordid IS NOT NULL THEN 'Yes'

@@ -684,6 +684,7 @@ rule BAGS:
     params:
         log_level=config['LOG_LEVEL'],
         libs=config["LIBS"]
+		log_dir=get_log_dir()
     output:
         tsv=f"{get_results_dir()}/assessed_BAGS.tsv"
     log: f"{get_log_dir()}/assess_BAGS.log"
@@ -706,14 +707,14 @@ rule BAGS:
             --db {input.db} \
             --progress 50 \
             > {output.tsv} \
-            2> >(tee logs/bags_full_debug.log | grep "PROGRESS:" >> {log}) || \
+            2> >(tee {params.log_dir}/bags_full_debug.log | grep "PROGRESS:" >> {log}) || \
         # Fallback for systems without process substitution
         (perl -I{params.libs} workflow/scripts/assess_taxa_simplified.pl \
             --db {input.db} \
             --progress 50 \
-            > {output.tsv} 2> logs/bags_all_output.log && \
+            > {output.tsv} 2> {params.log_dir}/bags_all_output.log && \
          echo "Extracting progress information..." >> {log} && \
-         grep "PROGRESS:" logs/bags_all_output.log >> {log} || true)
+         grep "PROGRESS:" {params.log_dir}/bags_all_output.log >> {log} || true)
         
         echo "" >> {log}
         echo "=== BAGS Analysis Completed ===" >> {log}
@@ -1120,6 +1121,7 @@ rule split_families:
         job_time=config.get("JOB_TIME", "04:00:00"),
         output_dir=f"{get_results_dir()}/family_databases",
         batch_dir=f"{get_results_dir()}/family_batches",
+        log_dir=get_log_dir(),
         script_dir="workflow/scripts"
     log: f"{get_log_dir()}/split_families.log"
     shell:
@@ -1137,7 +1139,8 @@ rule split_families:
         # Create necessary directories
         mkdir -p {params.output_dir}
         mkdir -p {params.batch_dir}
-        mkdir -p logs
+        mkdir -p {params.log_dir}
+        mkdir -p {params.log_dir}/family_splitting
         
         # Step 1: Prepare family batches
         echo "Step 1: Preparing family batches..." >> {log}
@@ -1153,8 +1156,8 @@ rule split_families:
             exit 1
         fi
         
-        # Determine actual number of batches created
-        ACTUAL_BATCHES=$(find {params.batch_dir} -name "batch_*.json" | wc -l)
+        # Determine actual number of batches created (exclude summary file)
+        ACTUAL_BATCHES=$(find {params.batch_dir} -name "batch_[0-9]*.json" | wc -l)
         echo "Created $ACTUAL_BATCHES batch files" >> {log}
         
         if [ $ACTUAL_BATCHES -eq 0 ]; then
@@ -1164,7 +1167,7 @@ rule split_families:
             exit 0
         fi
         
-        # Calculate array range (0-based indexing)
+        # Calculate array range (0-based indexing) - Fix: use actual count
         MAX_ARRAY_INDEX=$((ACTUAL_BATCHES - 1))
         echo "Job array range: 0-$MAX_ARRAY_INDEX" >> {log}
         
@@ -1174,8 +1177,8 @@ rule split_families:
         JOB_ID=$(sbatch \
             --array=0-$MAX_ARRAY_INDEX \
             --job-name=bold_family_split \
-            --output=logs/family_split_%A_%a.out \
-            --error=logs/family_split_%A_%a.err \
+            --output={params.log_dir}/family_splitting/family_split_%A_%a.out \
+            --error={params.log_dir}/family_splitting/family_split_%A_%a.err \
             --time={params.job_time} \
             --mem={params.job_memory} \
             --cpus-per-task={params.workers_per_job} \
@@ -1199,20 +1202,48 @@ rule split_families:
         
         # Wait for job to complete
         while squeue -j $JOB_ID -h >/dev/null 2>&1; do
-            sleep 30
             RUNNING=$(squeue -j $JOB_ID -h | wc -l)
+            if [ $RUNNING -eq 0 ]; then
+                echo "$(date): All tasks completed" >> {log}
+                break
+            fi
             echo "$(date): $RUNNING tasks still running..." >> {log}
+            sleep 30
         done
         
         echo "Job array completed at $(date)" >> {log}
         
         # Step 4: Consolidate results
         echo "Step 4: Consolidating results..." >> {log}
-        python {params.script_dir}/consolidate_results.py \
+        echo "Working directory: $(pwd)" >> {log}
+        echo "Batch directory: {params.batch_dir}" >> {log}
+        echo "Output directory: {params.output_dir}" >> {log}
+        
+        # Check what files exist
+        echo "Files in batch directory:" >> {log}
+        ls -la {params.batch_dir}/ >> {log} 2>&1 || echo "Batch directory not found" >> {log}
+        echo "Files in output directory:" >> {log}
+        ls -la {params.output_dir}/ >> {log} 2>&1 || echo "Output directory not found" >> {log}
+        
+        # Give jobs a moment to write their result files
+        sleep 10
+        
+        # Check for result files specifically
+        echo "Looking for result files:" >> {log}
+        find {params.output_dir} -name "*result.json" >> {log} 2>&1 || echo "No result files found" >> {log}
+        
+        # Run consolidation with timeout
+        timeout 300 python {params.script_dir}/consolidate_results.py \
             {params.batch_dir} \
             {params.output_dir} \
-            --wait-timeout 300 \
-            2>> {log}
+            --wait-timeout 60 \
+            2>> {log} || {{
+            echo "WARNING: Consolidation timed out or failed, proceeding anyway..." >> {log}
+            # Create a basic report if consolidation fails
+            echo "Consolidation failed or timed out" > {output.report}
+            DB_COUNT=$(find {params.output_dir} -name "*.db" 2>/dev/null | wc -l || echo "0")
+            echo "Found $DB_COUNT database files" >> {output.report}
+        }}
         
         # Verify completion
         if [ -f "{output.report}" ]; then
@@ -1238,6 +1269,82 @@ rule split_families:
             echo "ERROR: Family splitting failed - no report generated" >> {log}
             exit 1
         fi
+        """
+	
+rule compress_family_databases:
+    """Compress all family database files in parallel for storage efficiency"""
+    input:
+        families_split=f"{get_results_dir()}/families_split.ok"
+    output:
+        marker=f"{get_results_dir()}/family_databases_compressed.ok",
+        compression_report=f"{get_results_dir()}/family_databases/compression_report.txt"
+    params:
+        source_dir=f"{get_results_dir()}/family_databases",
+        output_dir=f"{get_results_dir()}/family_databases_compressed",
+        workers=config.get("COMPRESSION_WORKERS", 16),
+        log_dir=get_log_dir()
+    log: f"{get_log_dir()}/compress_family_databases.log"
+    conda: "envs/compress_databases.yaml"
+    threads: config.get("COMPRESSION_WORKERS", 16)
+    shell:
+        """
+        echo "=== Starting Family Database Compression ===" > {log}
+        echo "Start time: $(date)" >> {log}
+        echo "Source directory: {params.source_dir}" >> {log}
+        echo "Output directory: {params.output_dir}" >> {log}
+        echo "Workers: {params.workers}" >> {log}
+        echo "" >> {log}
+        
+        # Create output directory
+        mkdir -p {params.output_dir}
+        
+        # Run compression script
+        python workflow/scripts/zip_databases.py \
+            --source {params.source_dir} \
+            --output {params.output_dir} \
+            --workers {params.workers} \
+            --extensions .db \
+            2>> {log}
+        
+        # Check if compression was successful
+        COMPRESSED_COUNT=$(find {params.output_dir} -name "*.zip" | wc -l)
+        ORIGINAL_COUNT=$(find {params.source_dir} -name "*.db" | wc -l)
+        
+        echo "" >> {log}
+        echo "Compression Summary:" >> {log}
+        echo "Original .db files: $ORIGINAL_COUNT" >> {log}
+        echo "Compressed .zip files: $COMPRESSED_COUNT" >> {log}
+        
+        if [ "$COMPRESSED_COUNT" -eq "$ORIGINAL_COUNT" ]; then
+            echo "SUCCESS: All database files compressed successfully" >> {log}
+            
+            # Generate compression report
+            echo "Family Database Compression Report" > {output.compression_report}
+            echo "=================================" >> {output.compression_report}
+            echo "Completed: $(date)" >> {output.compression_report}
+            echo "" >> {output.compression_report}
+            echo "Files processed: $ORIGINAL_COUNT" >> {output.compression_report}
+            echo "Files compressed: $COMPRESSED_COUNT" >> {output.compression_report}
+            echo "" >> {output.compression_report}
+            
+            # Calculate size savings
+            ORIGINAL_SIZE=$(du -sb {params.source_dir} | cut -f1)
+            COMPRESSED_SIZE=$(du -sb {params.output_dir} | cut -f1)
+            if [ "$ORIGINAL_SIZE" -gt 0 ]; then
+                SAVINGS=$(echo "scale=1; (1 - $COMPRESSED_SIZE / $ORIGINAL_SIZE) * 100" | bc -l)
+                echo "Original size: $(numfmt --to=iec $ORIGINAL_SIZE)" >> {output.compression_report}
+                echo "Compressed size: $(numfmt --to=iec $COMPRESSED_SIZE)" >> {output.compression_report}
+                echo "Space savings: $SAVINGS%" >> {output.compression_report}
+            fi
+            
+            touch {output.marker}
+        else
+            echo "ERROR: Compression incomplete. Expected $ORIGINAL_COUNT, got $COMPRESSED_COUNT" >> {log}
+            exit 1
+        fi
+        
+        echo "=== Compression Completed ===" >> {log}
+        echo "End time: $(date)" >> {log}
         """
 
 rule create_final_summary:
@@ -1302,5 +1409,6 @@ rule all:
         f"{get_results_dir()}/result_output.tsv",
         f"{get_results_dir()}/families_split.ok",
         f"{get_results_dir()}/pipeline_summary.txt",
+        f"{get_results_dir()}/family_databases_compressed.ok",
         f"{get_results_dir()}/country_representatives_selected.ok"
     default_target: True

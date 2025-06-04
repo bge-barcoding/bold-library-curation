@@ -44,6 +44,9 @@ WITH RankedRecords AS (
         AND b.species != ''
         AND b.species != 'None'          -- Exclude "None" values
         AND b.species NOT LIKE '%sp.%'   -- Exclude incomplete species identifications
+        -- Only include records with valid bin_uri
+        AND b.bin_uri IS NOT NULL
+        AND b.bin_uri != 'None'          -- Exclude "None" values
         -- Only include records with country information
         AND b.country_iso IS NOT NULL 
         AND b.country_iso != ''
