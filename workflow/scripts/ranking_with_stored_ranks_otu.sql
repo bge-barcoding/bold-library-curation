@@ -40,7 +40,7 @@ SELECT
     mc.curator_notes,
     -- Key ranking fields
     br.sumscore,            -- Use pre-calculated sumscore from bold_ranks
-    bags.bags_grade AS BAGS,
+    bags.bags_grade AS bags_static,
 	CASE 
 		WHEN bags.bags_grade = 'C' THEN 'BIN splitting: ' || bags.bin_uri
 		WHEN bags.bags_grade = 'E' THEN 'BIN sharing: ' || bags.bin_uri || '; ' || bags.sharers

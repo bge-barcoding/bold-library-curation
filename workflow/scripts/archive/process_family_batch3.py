@@ -22,33 +22,22 @@ def safe_text_conversion(text):
         return None
     
     if isinstance(text, str):
-        # Check if string contains replacement characters indicating encoding issues
-        if '�' in text:
-            # Try to re-encode and decode with different encodings
-            for encoding in ['latin-1', 'cp1252', 'iso-8859-1', 'windows-1252']:
-                try:
-                    # Convert to bytes and back with error handling
-                    return text.encode('latin-1', errors='ignore').decode(encoding, errors='replace')
-                except (UnicodeDecodeError, UnicodeEncodeError):
-                    continue
-            # Last resort: clean up replacement characters
-            return text.replace('�', '?')
-        return text  # Already a valid string
+        return text  # Already a string
     
     # Try different encodings in order of preference
-    encodings = ['utf-8', 'latin-1', 'cp1252', 'iso-8859-1', 'windows-1252']
+    encodings = ['utf-8', 'latin-1', 'cp1252', 'iso-8859-1']
     
     for encoding in encodings:
         try:
             if isinstance(text, bytes):
-                return text.decode(encoding, errors='replace')
+                return text.decode(encoding)
             else:
-                return str(text).encode(encoding, errors='replace').decode('utf-8', errors='replace')
+                return str(text).encode(encoding).decode('utf-8')
         except (UnicodeDecodeError, UnicodeEncodeError):
             continue
     
     # Last resort: replace bad characters
-    return str(text).encode('utf-8', errors='replace').decode('utf-8', errors='replace')
+    return str(text).encode('utf-8', errors='replace').decode('utf-8')
 
 def row_factory_with_encoding(cursor, row):
     """Row factory that handles encoding conversion for text fields"""
@@ -258,10 +247,6 @@ def create_family_database(family_info, source_db, output_dir, threshold, logger
         # Test database connection first
         try:
             conn = sqlite3.connect(source_db, timeout=30.0)  # 30 second timeout
-            
-            # Set text factory to handle encoding issues
-            conn.text_factory = lambda x: x.decode('utf-8', errors='replace') if isinstance(x, bytes) else str(x) if x is not None else None
-            
             conn.execute("PRAGMA temp_store = MEMORY")
             conn.execute("PRAGMA mmap_size = 268435456")
             conn.execute("PRAGMA cache_size = -64000")
@@ -347,9 +332,6 @@ def create_single_family_db(family_info, source_db, output_file, logger):
     try:
         # Connect to source database with encoding handling
         source_conn = sqlite3.connect(source_db, timeout=30.0)  # 30 second timeout
-        
-        # Set text factory to handle encoding issues
-        source_conn.text_factory = lambda x: x.decode('utf-8', errors='replace') if isinstance(x, bytes) else str(x) if x is not None else None
         source_conn.row_factory = row_factory_with_encoding
         
         # Optimize source connection for reading
@@ -390,34 +372,14 @@ def create_single_family_db(family_info, source_db, output_file, logger):
             # Convert rows to lists with proper encoding (row_factory already handles this)
             converted_rows = []
             for row in rows:
-                try:
-                    if isinstance(row, dict):
-                        converted_row = []
-                        for col in columns:
-                            val = row[col]
-                            # Additional safety check for any remaining encoding issues
-                            if isinstance(val, str) and val:
-                                val = safe_text_conversion(val)
-                            converted_row.append(val)
-                        converted_rows.append(converted_row)
-                    else:
-                        # Handle tuple rows
-                        converted_row = []
-                        for val in row:
-                            if isinstance(val, str) and val:
-                                val = safe_text_conversion(val)
-                            converted_row.append(val)
-                        converted_rows.append(converted_row)
-                except Exception as row_error:
-                    logger.warning(f"Skipping problematic row due to encoding error: {row_error}")
-                    continue
+                if isinstance(row, dict):
+                    converted_rows.append([row[col] for col in columns])
+                else:
+                    converted_rows.append(list(row))
             
-            if converted_rows:
-                target_cursor.executemany(f"INSERT INTO records VALUES ({placeholders})", converted_rows)
-                target_conn.commit()
-                logger.info(f"Created family database: {output_file} with {len(converted_rows)} records")
-            else:
-                logger.warning(f"No valid records after encoding conversion for family {family_info['family']}")
+            target_cursor.executemany(f"INSERT INTO records VALUES ({placeholders})", converted_rows)
+            target_conn.commit()
+            logger.info(f"Created family database: {output_file} with {len(rows)} records")
         else:
             logger.warning(f"No records found for family {family_info['family']}")
         
@@ -425,19 +387,6 @@ def create_single_family_db(family_info, source_db, output_file, logger):
         target_conn.close()
         return True
         
-    except sqlite3.OperationalError as e:
-        error_msg = str(e).lower()
-        if "could not decode to utf-8" in error_msg:
-            logger.error(f"UTF-8 encoding error in family {family_info['family']}: {e}")
-            logger.error("This indicates problematic data in the source database that needs manual cleaning")
-            return False
-        elif "database or disk is full" in error_msg:
-            logger.error(f"Disk full error for family {family_info['family']}: {e}")
-            return False
-        else:
-            logger.error(f"SQLite operational error for family {family_info['family']}: {e}")
-            logger.error(traceback.format_exc())
-            return False
     except Exception as e:
         logger.error(f"Failed to create family database {output_file}: {e}")
         logger.error(traceback.format_exc())
@@ -448,9 +397,6 @@ def create_subfamily_db(family_info, subfamily, source_db, output_file, logger):
     try:
         # Connect to source database with encoding handling
         source_conn = sqlite3.connect(source_db, timeout=30.0)  # 30 second timeout
-        
-        # Set text factory to handle encoding issues
-        source_conn.text_factory = lambda x: x.decode('utf-8', errors='replace') if isinstance(x, bytes) else str(x) if x is not None else None
         source_conn.row_factory = row_factory_with_encoding
         
         # Optimize source connection for reading
@@ -498,37 +444,16 @@ def create_subfamily_db(family_info, subfamily, source_db, output_file, logger):
             # Convert rows to lists with proper encoding (row_factory already handles this)
             converted_rows = []
             for row in rows:
-                try:
-                    if isinstance(row, dict):
-                        converted_row = []
-                        for col in columns:
-                            val = row[col]
-                            # Additional safety check for any remaining encoding issues
-                            if isinstance(val, str) and val:
-                                val = safe_text_conversion(val)
-                            converted_row.append(val)
-                        converted_rows.append(converted_row)
-                    else:
-                        # Handle tuple rows
-                        converted_row = []
-                        for val in row:
-                            if isinstance(val, str) and val:
-                                val = safe_text_conversion(val)
-                            converted_row.append(val)
-                        converted_rows.append(converted_row)
-                except Exception as row_error:
-                    logger.warning(f"Skipping problematic row due to encoding error: {row_error}")
-                    continue
+                if isinstance(row, dict):
+                    converted_rows.append([row[col] for col in columns])
+                else:
+                    converted_rows.append(list(row))
             
-            if converted_rows:
-                target_cursor.executemany(f"INSERT INTO records VALUES ({placeholders})", converted_rows)
-                target_conn.commit()
-                
-                subfamily_label = subfamily if subfamily else "no_subfamily"
-                logger.info(f"Created subfamily database: {output_file} ({subfamily_label}) with {len(converted_rows)} records")
-            else:
-                subfamily_label = subfamily if subfamily else "no_subfamily"
-                logger.warning(f"No valid records after encoding conversion for subfamily {subfamily_label}")
+            target_cursor.executemany(f"INSERT INTO records VALUES ({placeholders})", converted_rows)
+            target_conn.commit()
+            
+            subfamily_label = subfamily if subfamily else "no_subfamily"
+            logger.info(f"Created subfamily database: {output_file} ({subfamily_label}) with {len(rows)} records")
         else:
             subfamily_label = subfamily if subfamily else "no_subfamily"
             logger.warning(f"No records found for subfamily {subfamily_label}")
@@ -537,20 +462,6 @@ def create_subfamily_db(family_info, subfamily, source_db, output_file, logger):
         target_conn.close()
         return True
         
-    except sqlite3.OperationalError as e:
-        error_msg = str(e).lower()
-        subfamily_label = subfamily if subfamily else "no_subfamily"
-        if "could not decode to utf-8" in error_msg:
-            logger.error(f"UTF-8 encoding error in subfamily {subfamily_label}: {e}")
-            logger.error("This indicates problematic data in the source database that needs manual cleaning")
-            return False
-        elif "database or disk is full" in error_msg:
-            logger.error(f"Disk full error for subfamily {subfamily_label}: {e}")
-            return False
-        else:
-            logger.error(f"SQLite operational error for subfamily {subfamily_label}: {e}")
-            logger.error(traceback.format_exc())
-            return False
     except Exception as e:
         subfamily_label = subfamily if subfamily else "no_subfamily"
         logger.error(f"Failed to create subfamily database {output_file} ({subfamily_label}): {e}")

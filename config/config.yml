@@ -43,6 +43,15 @@ OTU_CLUSTERING_THREADS: 8       # Number of threads for VSEARCH
 # -------------------------------
 # Family splitting configuration
 # -------------------------------
+
+# Kingdom filtering for export (default: all kingdoms)
+# Examples:
+# EXPORT_KINGDOMS: ["all"]                    # Export all kingdoms (default)
+# EXPORT_KINGDOMS: ["Animalia"]               # Only animals
+# EXPORT_KINGDOMS: ["Animalia", "Plantae"]    # Animals and plants
+# EXPORT_KINGDOMS: ["Plantae"]                # Only plants
+EXPORT_KINGDOMS: ["Animalia"]
+
 # Family size threshold for subfamily splitting (default: 10000)
 FAMILY_SIZE_THRESHOLD: 10000 # Split families larger than this by subfamily
 
