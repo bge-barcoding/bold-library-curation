@@ -14,15 +14,7 @@ import logging
 import time
 from typing import List, Tuple
 
-# Setup logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('zip_databases.log'),
-        logging.StreamHandler()
-    ]
-)
+# Logger will be configured in main() after parsing arguments
 logger = logging.getLogger(__name__)
 
 
@@ -93,6 +85,9 @@ def main():
     parser.add_argument('--output', 
                         default=r'C:\GitHub\bold-library-curation\results\results_otu_filter4\family_zipped',
                         help='Output directory for zipped files')
+    parser.add_argument('--log-dir',
+                        default='.',
+                        help='Directory for log files (default: current directory)')
     parser.add_argument('--workers', type=int, 
                         default=min(cpu_count(), 16),
                         help='Number of parallel workers (default: min(CPU count, 16))')
@@ -103,6 +98,20 @@ def main():
                         help='Show what would be done without actually zipping')
     
     args = parser.parse_args()
+    
+    # Setup logging with configurable log directory
+    log_file = os.path.join(args.log_dir, 'zip_databases.log')
+    os.makedirs(args.log_dir, exist_ok=True)  # Ensure log directory exists
+    
+    # Configure logging
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.FileHandler(log_file),
+            logging.StreamHandler()
+        ]
+    )
     
     # Validate input directory
     if not os.path.exists(args.source):

@@ -1,8 +1,6 @@
-# Output directory configuration
-RESULTS_DIR: "results"  # Default results directory - can be overridden
-LOG_DIR: "logs"  # Default log directory - can be overridden
-
+# -------------------------------
 # Input data configuration
+# -------------------------------
 BOLD_TSV: resources/test_data/test_odonata_large.tsv
 SCHEMA: workflow/scripts/schema_with_ranks.sql
 INDEXES: workflow/scripts/indexes.sql
@@ -11,21 +9,18 @@ INDEXES: workflow/scripts/indexes.sql
 LIBS: lib/
 PATH: lib/
 
-# Processing configuration
-TAXONOMY_CHUNK_SIZE: 10000  # Adjust based on your system's memory
-CRITERIA: "COLLECTION_DATE COLLECTORS COORD COUNTRY REGION SECTOR HAS_IMAGE IDENTIFIER ID_METHOD INSTITUTION MUSEUM_ID PUBLIC_VOUCHER SEQ_QUALITY SITE SPECIES_ID TYPE_SPECIMEN"
-
-# Target list configuration
-TARGET_LIST: resources/test_data/test_odonata_spec.csv
-USE_TARGET_LIST: false
-PROJECT_NAME: "bold-curation"
-TAXON_LEVEL: "species"
-KINGDOM: "Animalia"
-
 # Logging configuration
 LOG_LEVEL: "INFO"
 
+# -------------------------------
+# Output directory configuration
+# -------------------------------
+RESULTS_DIR: "results"  # Default results directory - can be overridden
+LOG_DIR: "logs"  # Default log directory - can be overridden
+
+# -------------------------------
 # Pre-scoring filter options
+# -------------------------------
 ENABLE_PRESCORING_FILTER: true  # Master switch true / false
 FILTER_TAXA: true  # true / false
 FILTER_TAXA_LIST: "resources/test_data/test_odonata_spec.csv"
@@ -36,20 +31,32 @@ FILTER_SPECIES: true  # Only include records with valid species names (not null,
 MARKER: "COI-5P"  # Specify marker code (e.g., "COI-5P") to filter by marker_code field, or null to disable marker filtering
 PRESCORING_FILTERED_OUTPUT: "test_odonata_large_filtered.tsv"  # Filename only - will be placed in RESULTS_DIR
 
+# -------------------------------
+# Processing configuration
+# -------------------------------
+TAXONOMY_CHUNK_SIZE: 10000  # Adjust based on your system's memory
+CRITERIA: "COLLECTION_DATE COLLECTORS COORD COUNTRY REGION SECTOR HAS_IMAGE IDENTIFIER ID_METHOD INSTITUTION MUSEUM_ID PUBLIC_VOUCHER SEQ_QUALITY SITE SPECIES_ID TYPE_SPECIMEN"
+
 # OTU Clustering configuration
 OTU_CLUSTERING_THRESHOLD: 0.99  # Similarity threshold (99%)
 OTU_CLUSTERING_THREADS: 8       # Number of threads for VSEARCH
 
 # -------------------------------
+# Target list configuration (after processing)
+# -------------------------------
+TARGET_LIST: resources/test_data/test_odonata_spec.csv
+USE_TARGET_LIST: false
+PROJECT_NAME: "bold-curation"
+TAXON_LEVEL: "species"
+KINGDOM: "Animalia"
+
+# -------------------------------
 # Family splitting configuration
 # -------------------------------
-
 # Kingdom filtering for export (default: all kingdoms)
-# Examples:
 # EXPORT_KINGDOMS: ["all"]                    # Export all kingdoms (default)
 # EXPORT_KINGDOMS: ["Animalia"]               # Only animals
 # EXPORT_KINGDOMS: ["Animalia", "Plantae"]    # Animals and plants
-# EXPORT_KINGDOMS: ["Plantae"]                # Only plants
 EXPORT_KINGDOMS: ["Animalia"]
 
 # Family size threshold for subfamily splitting (default: 10000)
@@ -74,6 +81,16 @@ JOB_TIME: "04:00:00"
 COMPRESSION_WORKERS: 16  # Adjust based on your HPC node specs
 COMPRESS_AFTER_SPLIT: true  # Enable/disable compression
 REMOVE_ORIGINAL_DBS: false  # Keep originals for safety initially
+
+# -------------------------------
+# Statistics Report Configuration
+# ------------------------------
+SKIP_DETAILED_TAXONOMY: true     # Skip detailed family-by-order pages for faster execution
+STATS_REPORT_FAST_MODE: false    # Use true to specify sub-sampling for very large datasets (>5M records)
+STATS_REPORT_SAMPLE_SIZE: 100000 # Sample size for fast mode
+STATS_REPORT_MEMORY_MB: 32000    # Memory in MB for Snakemake resource allocation
+STATS_REPORT_CPU: 8              # CPU cores for report generation
+STATS_REPORT_RUNTIME: 120        # Maximum runtime in minutes (2 hours)
 
 # Note: Output paths are dynamically constructed using RESULTS_DIR and LOG_DIR 
 # in the Snakefile helper functions. Directories are created automatically.
