@@ -25,6 +25,7 @@ import time
 import psutil
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import warnings
+from PIL import Image
 
 # Suppress warnings for cleaner output
 warnings.filterwarnings('ignore')
@@ -694,13 +695,28 @@ Database size: {self._get_file_size()}
         for bar in bars:
             height = bar.get_height()
             ax1.text(bar.get_x() + bar.get_width()/2., height, f'{int(height)}', ha='center', va='bottom')
-        ax2.axis('tight')
+        
+        # Replace table with BAGS scoring summary text
         ax2.axis('off')
-        table_data = [[grade, count] for grade, count in zip(df['bags_grade'], df['count'])]
-        table = ax2.table(cellText=table_data, colLabels=['BAGS Grade', 'Species Count'], cellLoc='center', loc='center')
-        table.auto_set_font_size(False)
-        table.set_fontsize(12)
-        table.scale(1.2, 1.5)
+        bags_summary_text = """BAGS scoring summary:
+
+Grade A = Species has > 10 specimens in 1 BIN
+
+Grade B = Species has 3 - 10 specimens in 1 BIN
+
+Grade C = Species has > 1 BIN (BIN splitting)
+
+Grade D = Species has < 3 specimens in 1 BIN
+
+Grade E = BIN with > 1 species (BIN sharing, includes Genus sp. or similar)
+
+Grade F = other"""
+        
+        ax2.text(0.1, 0.9, bags_summary_text, transform=ax2.transAxes, fontsize=11,
+                verticalalignment='top', fontfamily='monospace')
+        ax2.set_xlim(0, 1)
+        ax2.set_ylim(0, 1)
+        
         plt.suptitle('BAGS Grade Distribution', fontsize=16, fontweight='bold')
         pdf.savefig(fig, bbox_inches='tight')
         plt.close()
@@ -718,13 +734,22 @@ Database size: {self._get_file_size()}
         for bar in bars:
             height = bar.get_height()
             ax1.text(bar.get_x() + bar.get_width()/2., height, f'{int(height)}', ha='center', va='bottom')
-        ax2.axis('tight')
+        
+        # Replace table with image
         ax2.axis('off')
-        table_data = [[rank, count] for rank, count in zip(df['ranking'], df['count'])]
-        table = ax2.table(cellText=table_data, colLabels=['Rank', 'Record Count'], cellLoc='center', loc='center')
-        table.auto_set_font_size(False)
-        table.set_fontsize(12)
-        table.scale(1.2, 1.5)
+        try:
+            # Load and display the rank image
+            from PIL import Image
+            img_path = r"C:\GitHub\bold-library-curation\doc\bold-curation-ranks.png"
+            img = Image.open(img_path)
+            ax2.imshow(img)
+            ax2.set_title('Rank Categories')
+        except Exception as e:
+            # Fallback if image can't be loaded
+            ax2.text(0.5, 0.5, f'Image not available:\n{img_path}', 
+                    ha='center', va='center', transform=ax2.transAxes)
+            ax2.set_title('Rank Categories')
+        
         plt.suptitle('Rank Distribution', fontsize=16, fontweight='bold')
         pdf.savefig(fig, bbox_inches='tight')
         plt.close()
@@ -733,23 +758,23 @@ Database size: {self._get_file_size()}
         """Create sumscore distribution page"""
         if self.stats['sumscore_distribution'].empty:
             return
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11, 8.5))
+        fig, ax = plt.subplots(figsize=(11, 8.5))
         df = self.stats['sumscore_distribution']
-        bars = ax1.bar(df['sumscore'], df['count'])
-        ax1.set_xlabel('Sumscore')
-        ax1.set_ylabel('Number of Records')
-        ax1.set_title('Sumscore Distribution')
+        bars = ax.bar(df['sumscore'], df['count'])
+        ax.set_xlabel('Sumscore')
+        ax.set_ylabel('Number of Records')
+        ax.set_title('Sumscore Distribution (0-16)')
         for bar in bars:
             height = bar.get_height()
-            ax1.text(bar.get_x() + bar.get_width()/2., height, f'{int(height)}', ha='center', va='bottom')
-        ax2.axis('tight')
-        ax2.axis('off')
-        table_data = [[score, count, f"{count/df['count'].sum()*100:.1f}%"] for score, count in zip(df['sumscore'], df['count'])]
-        table = ax2.table(cellText=table_data, colLabels=['Sumscore', 'Count', 'Percentage'], cellLoc='center', loc='center')
-        table.auto_set_font_size(False)
-        table.set_fontsize(10)
-        table.scale(1.2, 1.5)
-        plt.suptitle('Sumscore Distribution (0-16)', fontsize=16, fontweight='bold')
+            ax.text(bar.get_x() + bar.get_width()/2., height, f'{int(height)}', ha='center', va='bottom')
+        
+        # Add figure caption at the bottom
+        caption_text = "The sum of all passed criteria, out of a total of 16 criteria assessed for each record. A higher score indicates a record with better specimen data."
+        fig.text(0.5, 0.02, caption_text, ha='center', va='bottom', fontsize=10, 
+                style='italic', wrap=True)
+        
+        plt.tight_layout()
+        plt.subplots_adjust(bottom=0.15)  # Make room for caption
         pdf.savefig(fig, bbox_inches='tight')
         plt.close()
     
@@ -815,6 +840,13 @@ Database size: {self._get_file_size()}
         ax.set_ylabel('BAGS Grade')
         ax.set_title('Species Distribution: BAGS Grade vs Best Rank')
         
+        # Add figure caption at the bottom
+        caption_text = "The rank of the best specimen record within each species within each BAGS grade. Top left box indicates the number of species with a BAGS grade A which have a specimen of rank of 1 (= type specimens)."
+        fig.text(0.5, 0.02, caption_text, ha='center', va='bottom', fontsize=10, 
+                style='italic', wrap=True)
+        
+        plt.tight_layout()
+        plt.subplots_adjust(bottom=0.15)  # Make room for caption
         pdf.savefig(fig, bbox_inches='tight')
         plt.close()
     def _create_curation_page(self, pdf):
@@ -840,7 +872,17 @@ Database size: {self._get_file_size()}
                     f'{int(height)}', ha='center', va='bottom')
         
         plt.suptitle('Curation Analysis', fontsize=16, fontweight='bold')
+        
+        # Add figure caption at the bottom
+        caption_text = """Distribution of species which are possible to auto-curate, probably need attention and require manual intervention.
+Auto-curatable = BAGS grade A, B or D and specimen ranks 1, 2, or 3
+Need attention = BAGS grade A, B or D and specimen ranks >=4
+Manual intervention = BAGS grade C or E"""
+        fig.text(0.5, 0.02, caption_text, ha='center', va='bottom', fontsize=9, 
+                style='italic', wrap=True)
+        
         plt.tight_layout()
+        plt.subplots_adjust(bottom=0.2)  # Make room for caption
         pdf.savefig(fig, bbox_inches='tight')
         plt.close()
     def _create_country_representatives_page(self, pdf):
@@ -1244,17 +1286,17 @@ Family Summary ({order_name}):
                 ax1.text(bar.get_x() + bar.get_width()/2., height,
                         f'{int(height)}', ha='center', va='bottom')
             
-            # Table with summary statistics
-            ax2.axis('tight')
+            # Replace table with text summary
             ax2.axis('off')
-            table_data = [[row['level'], row['unique_count'], f"{row['total_records']:,}", 
-                          f"{row['total_species']:,}"] for _, row in counts_df.iterrows()]
-            table = ax2.table(cellText=table_data, 
-                             colLabels=['Level', 'Unique Taxa', 'Total Records', 'Total Species'],
-                             cellLoc='center', loc='center')
-            table.auto_set_font_size(False)
-            table.set_fontsize(10)
-            table.scale(1.2, 1.5)
+            summary_text = "Taxonomic Summary Statistics:\n\n"
+            for _, row in counts_df.iterrows():
+                summary_text += f"{row['level']}:\n"
+                summary_text += f"  • Unique taxa: {row['unique_count']}\n"
+                summary_text += f"  • Total records: {row['total_records']:,}\n"
+                summary_text += f"  • Total species: {row['total_species']:,}\n\n"
+            
+            ax2.text(0.1, 0.9, summary_text, transform=ax2.transAxes, fontsize=10,
+                    verticalalignment='top', fontfamily='monospace')
             ax2.set_title('Taxonomic Summary Statistics')
         
         # Top 10 most diverse orders (by species count)

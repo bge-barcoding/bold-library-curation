@@ -1,0 +1,10 @@
+name: phylo
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+dependencies:
+  - mafft
+  - fasttree
+  - iqtree
+  - muscle

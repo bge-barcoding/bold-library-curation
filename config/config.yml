@@ -92,5 +92,66 @@ STATS_REPORT_MEMORY_MB: 32000    # Memory in MB for Snakemake resource allocatio
 STATS_REPORT_CPU: 8              # CPU cores for report generation
 STATS_REPORT_RUNTIME: 120        # Maximum runtime in minutes (2 hours)
 
+# -------------------------------
+# Phylogenetic Analysis Configuration
+# -------------------------------
+PHYLO_ENABLED: false  # Master switch to enable/disable phylogenetic analysis
+
+# Database and output configuration
+PHYLO_OUTPUT_DIR: "phylogenies"  # Directory for phylogenetic outputs (relative to RESULTS_DIR)
+PHYLO_DATABASE: "bold.db"        # SQLite database name (will be found in RESULTS_DIR)
+
+# Analysis scope and filtering
+PHYLO_MIN_OTUS: 3                # Minimum number of OTUs required per family for analysis
+PHYLO_MAX_FAMILIES: null         # Maximum families to process (null = all families, number = limit for testing)
+PHYLO_MIN_SEQUENCE_LENGTH: 200   # Minimum sequence length in base pairs
+PHYLO_TARGET_FAMILIES: []        # Specific families to analyze (empty = all families meeting criteria)
+                                 # Example: ["Libellulidae", "Coenagrionidae", "Aeshnidae"]
+
+# OTU representative selection strategies
+PHYLO_SELECTION_STRATEGY: "best_quality"  # Options: "longest", "random", "best_quality"
+                                          # - longest: Select longest sequence per OTU
+                                          # - random: Random sequence per OTU
+                                          # - best_quality: Prefer sequences without ambiguous bases, then longest
+
+# Outgroup selection
+PHYLO_NUM_OUTGROUPS: 3           # Number of outgroup sequences to include per family tree
+PHYLO_OUTGROUP_STRATEGY: "diverse"  # Options: "diverse", "random"
+                                    # - diverse: Select from different families to maximize diversity
+                                    # - random: Random selection from available outgroups
+
+# Software configuration
+PHYLO_ALIGNMENT_METHOD: "mafft"   # Options: "mafft", "muscle"
+PHYLO_ALIGNMENT_ALGORITHM: "auto" # MAFFT algorithm: "auto", "linsi", "ginsi", "einsi"
+PHYLO_TREE_METHOD: "fasttree"     # Options: "fasttree", "iqtree"
+PHYLO_TREE_MODEL: "gtr"           # Substitution model: "gtr", "jc", "nt" (for FastTree)
+PHYLO_BOOTSTRAP: 1000             # Bootstrap replicates (for IQ-TREE only)
+
+# Resource allocation
+PHYLO_THREADS: 4                  # Number of CPU threads for phylogenetic software
+PHYLO_MEMORY: "8G"                # Memory allocation for alignment and tree building
+PHYLO_MAX_RUNTIME: "02:00:00"     # Maximum runtime per family (HH:MM:SS format)
+
+# Quality control and validation
+PHYLO_VALIDATE_SEQUENCES: true    # Perform sequence validation before analysis
+PHYLO_REMOVE_DUPLICATES: true     # Remove duplicate sequences within families
+PHYLO_CHECK_OUTGROUPS: true       # Validate outgroup selection (same order requirement)
+
+# Output options
+PHYLO_SAVE_METADATA: true         # Save detailed metadata for each analysis
+PHYLO_COMPRESS_OUTPUTS: false     # Compress output files to save space
+PHYLO_GENERATE_REPORT: true       # Generate comprehensive analysis report
+PHYLO_LOG_LEVEL: "INFO"           # Logging level: "DEBUG", "INFO", "WARNING", "ERROR"
+
+# Advanced options
+PHYLO_CUSTOM_PARAMETERS:          # Custom parameters for external software
+  mafft: []                       # Additional MAFFT parameters: ["--maxiterate", "1000"]
+  fasttree: []                    # Additional FastTree parameters: ["-slow"]
+  iqtree: []                      # Additional IQ-TREE parameters: ["-redo"]
+
+# Parallel processing (for large datasets)
+PHYLO_PARALLEL_FAMILIES: false    # Process families in parallel (requires more resources)
+PHYLO_MAX_PARALLEL_JOBS: 4        # Maximum number of families to process simultaneously
+
 # Note: Output paths are dynamically constructed using RESULTS_DIR and LOG_DIR 
 # in the Snakefile helper functions. Directories are created automatically.

@@ -31,6 +31,10 @@ dependencies:
   - jq
   - curl
   - bc
+  - mafft
+  - fasttree
+  - iqtree
+  - muscle
   
   # OTU clustering tools (pin versions for reproducibility)
   - vsearch=2.22.1
