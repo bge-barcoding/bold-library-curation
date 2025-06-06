@@ -684,7 +684,6 @@ rule BAGS:
     params:
         log_level=config['LOG_LEVEL'],
         libs=config["LIBS"]
-		log_dir=get_log_dir()
     output:
         tsv=f"{get_results_dir()}/assessed_BAGS.tsv"
     log: f"{get_log_dir()}/assess_BAGS.log"
@@ -707,14 +706,14 @@ rule BAGS:
             --db {input.db} \
             --progress 50 \
             > {output.tsv} \
-            2> >(tee {params.log_dir}/bags_full_debug.log | grep "PROGRESS:" >> {log}) || \
+            2> >(tee logs/bags_full_debug.log | grep "PROGRESS:" >> {log}) || \
         # Fallback for systems without process substitution
         (perl -I{params.libs} workflow/scripts/assess_taxa_simplified.pl \
             --db {input.db} \
             --progress 50 \
-            > {output.tsv} 2> {params.log_dir}/bags_all_output.log && \
+            > {output.tsv} 2> logs/bags_all_output.log && \
          echo "Extracting progress information..." >> {log} && \
-         grep "PROGRESS:" {params.log_dir}/bags_all_output.log >> {log} || true)
+         grep "PROGRESS:" logs/bags_all_output.log >> {log} || true)
         
         echo "" >> {log}
         echo "=== BAGS Analysis Completed ===" >> {log}
@@ -1353,57 +1352,217 @@ rule compress_family_databases:
         echo "End time: $(date)" >> {log}
         """
 
-rule create_final_summary:
-    """Generate comprehensive pipeline execution summary"""
+# PHASE 7: RUN SUMMARY
+# ======================
+rule generate_stats_report:
+    """Generate comprehensive database statistics report as final pipeline step"""
     input:
-        result_tsv=f"{get_results_dir()}/result_output.tsv",
+        db=get_db_file(),
         families_split=f"{get_results_dir()}/families_split.ok",
-        split_report=f"{get_results_dir()}/family_databases/splitting_report.txt"
+        compressed=f"{get_results_dir()}/family_databases_compressed.ok"
     output:
-        summary=f"{get_results_dir()}/pipeline_summary.txt"
+        pdf_report=f"{get_results_dir()}/bold_database_statistics.pdf",
+        marker=f"{get_results_dir()}/stats_report_generated.ok"
     params:
-        db_file=get_db_file(),
-        results_dir=get_results_dir()
+        db_path=get_db_file(),
+        log_path=f"{get_log_dir()}/prescoring_filter.log",
+        skip_detailed_taxonomy="--skip-detailed-taxonomy" if config.get("SKIP_DETAILED_TAXONOMY", True) else "",
+        fast_mode="--fast-mode" if config.get("STATS_REPORT_FAST_MODE", False) else "",
+        sample_size=config.get("STATS_REPORT_SAMPLE_SIZE", 100000),
+        max_workers=config.get("STATS_REPORT_CPU", 8)
+    resources:
+        mem_mb=config.get("STATS_REPORT_MEMORY_MB", 32000),
+        runtime=config.get("STATS_REPORT_RUNTIME", 120)  # 2 hours
+    threads: config.get("STATS_REPORT_CPU", 8)
+    conda: "envs/stats_report.yaml"
+    log: f"{get_log_dir()}/stats_report.log"
     shell:
         """
-        echo "BOLD Library Curation Pipeline - Final Summary" > {output.summary}
-        echo "=============================================" >> {output.summary}
-        echo "Completed: $(date)" >> {output.summary}
-        echo "" >> {output.summary}
+        echo "=== Starting BOLD Database Statistics Report Generation ===" > {log}
+        echo "Start time: $(date)" >> {log}
+        echo "Database: {params.db_path}" >> {log}
+        echo "Memory allocated: {resources.mem_mb} MB" >> {log}
+        echo "CPUs: {threads}" >> {log}
+        echo "Skip detailed taxonomy: {params.skip_detailed_taxonomy}" >> {log}
+        echo "Fast mode: {params.fast_mode}" >> {log}
+        echo "" >> {log}
         
-        # Main results
-        echo "Main Results:" >> {output.summary}
-        echo "- Processed database: {params.db_file}" >> {output.summary}
-        echo "- Final scored data: {input.result_tsv}" >> {output.summary}
+        # Set memory-efficient Python options for large datasets
+        export PYTHONHASHSEED=0
+        export OMP_NUM_THREADS={threads}
+        export SQLITE_TMPDIR=${{TMPDIR:-/tmp}}
+        
+        # Run the statistics report generation
+        python workflow/scripts/bold_stats_report_hpc.py \
+            --database {params.db_path} \
+            --log {params.log_path} \
+            --output {output.pdf_report} \
+            {params.skip_detailed_taxonomy} \
+            {params.fast_mode} \
+            --sample-size {params.sample_size} \
+            --max-workers {params.max_workers} \
+            2>> {log}
+        
+        if [ $? -eq 0 ]; then
+            echo "Statistics report generated successfully: {output.pdf_report}" >> {log}
+            echo "Report size: $(du -h {output.pdf_report} | cut -f1)" >> {log}
+            touch {output.marker}
+        else
+            echo "ERROR: Failed to generate statistics report" >> {log}
+            exit 1
+        fi
+        
+        echo "=== Statistics Report Generation Completed ===" >> {log}
+        echo "End time: $(date)" >> {log}
+        """
+
+# PHASE 8: ARCHIVE FINAL RESULTS
+# ==============================
+rule archive_final_results:
+    """Archive key pipeline outputs with timestamp for final delivery"""
+    input:
+        stats_report=f"{get_results_dir()}/bold_database_statistics.pdf",
+        stats_marker=f"{get_results_dir()}/stats_report_generated.ok",
+        result_tsv=f"{get_results_dir()}/result_output.tsv",
+        database=get_db_file(),
+        compressed_marker=f"{get_results_dir()}/family_databases_compressed.ok"
+    output:
+        archive_marker=f"{get_results_dir()}/final_results_archived.ok"
+    params:
+        results_dir=get_results_dir(),
+        log_dir=get_log_dir()
+    log: f"{get_log_dir()}/archive_final_results.log"
+    shell:
+        """
+        echo "=== Starting Final Results Archiving ===" > {log}
+        echo "Start time: $(date)" >> {log}
+        echo "Results directory: {params.results_dir}" >> {log}
+        echo "Log directory: {params.log_dir}" >> {log}
+        echo "" >> {log}
+        
+        # Generate timestamp for archive folder
+        TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+        ARCHIVE_DIR="{params.results_dir}/final_results_$TIMESTAMP"
+        
+        echo "Creating archive directory: $ARCHIVE_DIR" >> {log}
+        mkdir -p "$ARCHIVE_DIR"
+        
+        # Initialize success/failure counters
+        SUCCESS_COUNT=0
+        FAILURE_COUNT=0
+        
+        echo "" >> {log}
+        echo "=== Archiving Files ===" >> {log}
+        
+        # Archive result_output.tsv
+        echo "Archiving result_output.tsv..." >> {log}
         if [ -f "{input.result_tsv}" ]; then
-            TOTAL_RECORDS=$(tail -n +2 {input.result_tsv} | wc -l)
-            echo "- Total records: $TOTAL_RECORDS" >> {output.summary}
+            if gzip -c "{input.result_tsv}" > "$ARCHIVE_DIR/result_output.tsv.gz"; then
+                echo "SUCCESS: result_output.tsv compressed to result_output.tsv.gz" >> {log}
+                echo "  Original size: $(du -h {input.result_tsv} | cut -f1)" >> {log}
+                echo "  Compressed size: $(du -h $ARCHIVE_DIR/result_output.tsv.gz | cut -f1)" >> {log}
+                SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
+            else
+                echo "FAILURE: Failed to compress result_output.tsv" >> {log}
+                FAILURE_COUNT=$((FAILURE_COUNT + 1))
+            fi
+        else
+            echo "FAILURE: result_output.tsv not found at {input.result_tsv}" >> {log}
+            FAILURE_COUNT=$((FAILURE_COUNT + 1))
         fi
-        echo "" >> {output.summary}
         
-        # Family databases
-        echo "Family Databases:" >> {output.summary}
-        if [ -f "{input.split_report}" ]; then
-            grep -A 20 "Family Statistics:" {input.split_report} | head -20 >> {output.summary}
+        # Archive bold.db
+        echo "Archiving bold.db..." >> {log}
+        if [ -f "{input.database}" ]; then
+            if gzip -c "{input.database}" > "$ARCHIVE_DIR/bold.db.gz"; then
+                echo "SUCCESS: bold.db compressed to bold.db.gz" >> {log}
+                echo "  Original size: $(du -h {input.database} | cut -f1)" >> {log}
+                echo "  Compressed size: $(du -h $ARCHIVE_DIR/bold.db.gz | cut -f1)" >> {log}
+                SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
+            else
+                echo "FAILURE: Failed to compress bold.db" >> {log}
+                FAILURE_COUNT=$((FAILURE_COUNT + 1))
+            fi
+        else
+            echo "FAILURE: bold.db not found at {input.database}" >> {log}
+            FAILURE_COUNT=$((FAILURE_COUNT + 1))
         fi
-        echo "" >> {output.summary}
         
-        # File structure
-        echo "Output Structure:" >> {output.summary}
-        echo "{params.results_dir}/" >> {output.summary}
-        echo "├── bold.db                    # Main database" >> {output.summary}
-        echo "├── result_output.tsv          # Final scored data" >> {output.summary}
-        echo "├── assessed_*.tsv             # Individual criteria assessments" >> {output.summary}
-        echo "└── family_databases/          # Split by taxonomy" >> {output.summary}
+        # Archive family_databases_compressed folder
+        echo "Archiving family_databases_compressed directory..." >> {log}
+        FAMILY_DB_DIR="{params.results_dir}/family_databases_compressed"
+        if [ -d "$FAMILY_DB_DIR" ]; then
+            if tar -czf "$ARCHIVE_DIR/family_databases_compressed.tar.gz" -C "{params.results_dir}" "family_databases_compressed"; then
+                echo "SUCCESS: family_databases_compressed directory archived to family_databases_compressed.tar.gz" >> {log}
+                echo "  Directory size: $(du -sh $FAMILY_DB_DIR | cut -f1)" >> {log}
+                echo "  Archive size: $(du -h $ARCHIVE_DIR/family_databases_compressed.tar.gz | cut -f1)" >> {log}
+                SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
+            else
+                echo "FAILURE: Failed to archive family_databases_compressed directory" >> {log}
+                FAILURE_COUNT=$((FAILURE_COUNT + 1))
+            fi
+        else
+            echo "FAILURE: family_databases_compressed directory not found at $FAMILY_DB_DIR" >> {log}
+            FAILURE_COUNT=$((FAILURE_COUNT + 1))
+        fi
         
-        DB_COUNT=$(find {params.results_dir}/family_databases -name "*.db" 2>/dev/null | wc -l)
-        echo "    ├── $DB_COUNT family/subfamily databases" >> {output.summary}
+        # Archive logs directory
+        echo "Archiving logs directory..." >> {log}
+        if [ -d "{params.log_dir}" ]; then
+            # Use relative path from parent directory to avoid including full path in archive
+            PARENT_DIR=$(dirname "{params.log_dir}")
+            LOG_DIR_NAME=$(basename "{params.log_dir}")
+            if tar -czf "$ARCHIVE_DIR/logs.tar.gz" -C "$PARENT_DIR" "$LOG_DIR_NAME"; then
+                echo "SUCCESS: logs directory archived to logs.tar.gz" >> {log}
+                echo "  Directory size: $(du -sh {params.log_dir} | cut -f1)" >> {log}
+                echo "  Archive size: $(du -h $ARCHIVE_DIR/logs.tar.gz | cut -f1)" >> {log}
+                SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
+            else
+                echo "FAILURE: Failed to archive logs directory" >> {log}
+                FAILURE_COUNT=$((FAILURE_COUNT + 1))
+            fi
+        else
+            echo "FAILURE: logs directory not found at {params.log_dir}" >> {log}
+            FAILURE_COUNT=$((FAILURE_COUNT + 1))
+        fi
         
-        PHYLA_COUNT=$(find {params.results_dir}/family_databases -maxdepth 1 -type d 2>/dev/null | wc -l)
-        echo "    └── organized in $PHYLA_COUNT phyla" >> {output.summary}
+        # Copy statistics PDF (no compression needed)
+        echo "Copying statistics report PDF..." >> {log}
+        if [ -f "{input.stats_report}" ]; then
+            if cp "{input.stats_report}" "$ARCHIVE_DIR/bold_database_statistics.pdf"; then
+                echo "SUCCESS: bold_database_statistics.pdf copied" >> {log}
+                echo "  File size: $(du -h {input.stats_report} | cut -f1)" >> {log}
+                SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
+            else
+                echo "FAILURE: Failed to copy bold_database_statistics.pdf" >> {log}
+                FAILURE_COUNT=$((FAILURE_COUNT + 1))
+            fi
+        else
+            echo "FAILURE: bold_database_statistics.pdf not found at {input.stats_report}" >> {log}
+            FAILURE_COUNT=$((FAILURE_COUNT + 1))
+        fi
         
-        echo "" >> {output.summary}
-        echo "For detailed family splitting report, see: {input.split_report}" >> {output.summary}
+        echo "" >> {log}
+        echo "=== Archive Summary ===" >> {log}
+        echo "Archive directory: $ARCHIVE_DIR" >> {log}
+        echo "Successful operations: $SUCCESS_COUNT" >> {log}
+        echo "Failed operations: $FAILURE_COUNT" >> {log}
+        echo "Total archive size: $(du -sh $ARCHIVE_DIR | cut -f1)" >> {log}
+        
+        # List final archive contents
+        echo "" >> {log}
+        echo "Archive contents:" >> {log}
+        ls -lh "$ARCHIVE_DIR/" >> {log}
+        
+        echo "" >> {log}
+        echo "=== Final Results Archiving Completed ===" >> {log}
+        echo "End time: $(date)" >> {log}
+        
+        # Always create the marker file, even if some operations failed
+        echo "Archive created at: $ARCHIVE_DIR" > {output.archive_marker}
+        echo "Successful operations: $SUCCESS_COUNT" >> {output.archive_marker}
+        echo "Failed operations: $FAILURE_COUNT" >> {output.archive_marker}
+        echo "Completed at: $(date)" >> {output.archive_marker}
         """
 
 # FINAL TARGET RULES
@@ -1414,7 +1573,8 @@ rule all:
     input:
         f"{get_results_dir()}/result_output.tsv",
         f"{get_results_dir()}/families_split.ok",
-        f"{get_results_dir()}/pipeline_summary.txt",
         f"{get_results_dir()}/family_databases_compressed.ok",
-        f"{get_results_dir()}/country_representatives_selected.ok"
+        f"{get_results_dir()}/country_representatives_selected.ok",
+        f"{get_results_dir()}/stats_report_generated.ok",
+        f"{get_results_dir()}/final_results_archived.ok"
     default_target: True

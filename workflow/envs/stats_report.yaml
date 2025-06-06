@@ -10,4 +10,8 @@ dependencies:
   - seaborn>=0.11.0
   - sqlite>=3.36.0
   - psutil>=5.8.0
+  - scipy>=1.7.0
+  - pathlib2  # For better Path support
   - pip
+  - pip:
+    - matplotlib-venn  # Additional plotting utility if needed
