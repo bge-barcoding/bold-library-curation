@@ -31,10 +31,15 @@ dependencies:
   - jq
   - curl
   - bc
-  - mafft
-  - fasttree
-  - iqtree
-  - muscle
+  - muscle=5.*     # MUSCLE 5.x for sequence alignment
+  - mafft=7.*      # Alternative alignment method
+  - iqtree=2.*     # Phylogenetic tree construction
+  - fasttree=2.*   # Fast phylogenetic tree construction
+  - ete3=3.1.*     # Tree manipulation and PDF generation
+  - pyqt=5.*       # GUI toolkit required by ETE3
+  - xorg-libxext   # X11 extension library for headless operation
+  - xorg-libxrender # X11 render extension
+ 
   
   # OTU clustering tools (pin versions for reproducibility)
   - vsearch=2.22.1

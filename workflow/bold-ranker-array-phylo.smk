@@ -925,7 +925,7 @@ OTU
 # =====================
 
 rule run_phylogenetic_analysis:
-    """Generate phylogenetic trees for each family using OTU sequences"""
+    """Generate phylogenetic trees and PDFs using enhanced HPC-optimized pipeline"""
     input:
         db=get_db_file(),
         otus_ok=f"{get_results_dir()}/otus_imported.ok"
@@ -935,41 +935,61 @@ rule run_phylogenetic_analysis:
         phylo_enabled=config.get("PHYLO_ENABLED", False),
         output_dir=f"{get_results_dir()}/{config.get('PHYLO_OUTPUT_DIR', 'phylogenies')}",
         min_otus=config.get("PHYLO_MIN_OTUS", 3),
-        max_families=config.get("PHYLO_MAX_FAMILIES", None),
+        max_families=config.get("PHYLO_MAX_FAMILIES", 0),
         selection_strategy=config.get("PHYLO_SELECTION_STRATEGY", "best_quality"),
         num_outgroups=config.get("PHYLO_NUM_OUTGROUPS", 3),
         alignment_method=config.get("PHYLO_ALIGNMENT_METHOD", "mafft"),
-        tree_method=config.get("PHYLO_TREE_METHOD", "fasttree"),
+        tree_method=config.get("PHYLO_TREE_METHOD", "iqtree"),
         bootstrap=config.get("PHYLO_BOOTSTRAP", 1000),
         log_level=config.get("PHYLO_LOG_LEVEL", "INFO"),
+        generate_pdfs=True,  # Always enable PDF generation with BIN conflict analysis
+        bin_conflict_analysis=True,
+        cleanup_intermediates=True,
         max_families_arg=lambda wildcards: f"--max-families {config.get('PHYLO_MAX_FAMILIES', 0)}" if config.get('PHYLO_MAX_FAMILIES', 0) > 0 else ""
-    threads: config.get("PHYLO_THREADS", 4)
+    threads: config.get("PHYLO_THREADS", 8)
     resources:
-        mem_mb=lambda wildcards: 8000 if config.get("PHYLO_MEMORY", "8G") == "8G" else int(config.get("PHYLO_MEMORY", "8G").replace("G", "")) * 1000,
-        runtime=lambda wildcards: 120 if config.get("PHYLO_MAX_RUNTIME", "02:00:00") == "02:00:00" else int(config.get("PHYLO_MAX_RUNTIME", "02:00:00").split(":")[0]) * 60
+        mem_mb=lambda wildcards: int(config.get("PHYLO_MEMORY", "16G").replace("G", "")) * 1000,  # Increased default memory
+        runtime=lambda wildcards: int(config.get("PHYLO_MAX_RUNTIME", "04:00:00").split(":")[0]) * 60  # Increased default runtime
     conda: "envs/phylogenetic_analysis.yaml"
     log: f"{get_log_dir()}/phylogenetic_analysis.log"
     shell:
         """
         if [ "{params.phylo_enabled}" = "True" ]; then
-            echo "=== Starting Phylogenetic Analysis ===" > {log}
+            echo "=== Starting Enhanced Phylogenetic Analysis ===" > {log}
             echo "Start time: $(date)" >> {log}
             echo "Database: {input.db}" >> {log}
             echo "Output directory: {params.output_dir}" >> {log}
             echo "Minimum OTUs per family: {params.min_otus}" >> {log}
             echo "Maximum families to process: {params.max_families}" >> {log}
+            echo "Generate PDFs: {params.generate_pdfs}" >> {log}
+            echo "BIN conflict analysis: {params.bin_conflict_analysis}" >> {log}
             echo "Selection strategy: {params.selection_strategy}" >> {log}
             echo "Number of outgroups: {params.num_outgroups}" >> {log}
             echo "Alignment method: {params.alignment_method}" >> {log}
             echo "Tree method: {params.tree_method}" >> {log}
+            echo "Bootstrap replicates: {params.bootstrap}" >> {log}
             echo "Threads: {threads}" >> {log}
             echo "" >> {log}
             
             # Create output directory
             mkdir -p {params.output_dir}
             
-            # Run phylogenetic analysis
-            python workflow/scripts/phylo_pipeline.py \
+            # Set environment variables for headless operation
+            export QT_QPA_PLATFORM=offscreen
+            export MPLBACKEND=Agg
+            export DISPLAY=:99
+            
+            # Check if xvfb is available and start virtual display if needed
+            if command -v xvfb-run >/dev/null 2>&1; then
+                echo "Using xvfb-run for virtual display" >> {log}
+                PYTHON_CMD="xvfb-run -a python"
+            else
+                echo "xvfb-run not available, using environment variables only" >> {log}
+                PYTHON_CMD="python"
+            fi
+            
+            # Run enhanced phylogenetic analysis with PDF generation
+            $PYTHON_CMD workflow/scripts/phylo_pipeline.py \
                 --database {input.db} \
                 --output-dir {params.output_dir} \
                 --min-otus {params.min_otus} \
@@ -981,14 +1001,28 @@ rule run_phylogenetic_analysis:
                 --bootstrap {params.bootstrap} \
                 --threads {threads} \
                 --log-level {params.log_level} \
+                --generate-pdfs \
+                --bin-conflict-analysis \
+                --cleanup-intermediates \
                 2>> {log}
             
             if [ $? -eq 0 ]; then
-                echo "Phylogenetic analysis completed successfully" >> {log}
+                echo "Enhanced phylogenetic analysis completed successfully" >> {log}
                 echo "End time: $(date)" >> {log}
+                
+                # Report generated outputs
+                TOTAL_FAMILIES=$(find {params.output_dir} -type d -mindepth 1 -maxdepth 1 | wc -l)
+                PDF_COUNT=$(find {params.output_dir} -name "*_tree.pdf" | wc -l)
+                TREE_COUNT=$(find {params.output_dir} -name "*.treefile" | wc -l)
+                
+                echo "Generated outputs:" >> {log}
+                echo "  Total family directories: $TOTAL_FAMILIES" >> {log}
+                echo "  PDF visualizations: $PDF_COUNT" >> {log}
+                echo "  Tree files: $TREE_COUNT" >> {log}
+                
                 touch {output.marker}
             else
-                echo "ERROR: Phylogenetic analysis failed" >> {log}
+                echo "ERROR: Enhanced phylogenetic analysis failed" >> {log}
                 exit 1
             fi
         else
@@ -1314,7 +1348,8 @@ rule split_families:
 rule compress_family_databases:
     """Compress all family database files in parallel for storage efficiency"""
     input:
-        families_split=f"{get_results_dir()}/families_split.ok"
+        families_split=f"{get_results_dir()}/families_split.ok",
+        reports_merged=f"{get_results_dir()}/reports_merged_to_families.ok"
     output:
         marker=f"{get_results_dir()}/family_databases_compressed.ok",
         compression_report=f"{get_results_dir()}/family_databases/compression_report.txt"
@@ -1385,6 +1420,92 @@ rule compress_family_databases:
         fi
         
         echo "=== Compression Completed ===" >> {log}
+        echo "End time: $(date)" >> {log}
+        """
+
+rule merge_reports_to_families:
+    """Merge phylogenies and other reports into family subdirectories"""
+    input:
+        families_split=f"{get_results_dir()}/families_split.ok",
+        phylo_done=f"{get_results_dir()}/phylogenetic_analysis_completed.ok" if config.get("PHYLO_ENABLED", False) else []
+    output:
+        marker=f"{get_results_dir()}/reports_merged_to_families.ok"
+    params:
+        phylo_source_dir=f"{get_results_dir()}/{config.get('PHYLO_OUTPUT_DIR', 'phylogenies')}",
+        family_db_dir=f"{get_results_dir()}/family_databases",
+        phylo_enabled=config.get("PHYLO_ENABLED", False)
+    log: f"{get_log_dir()}/merge_reports_to_families.log"
+    shell:
+        """
+        echo "=== Starting Report Merging to Family Directories ===" > {log}
+        echo "Start time: $(date)" >> {log}
+        echo "Phylogenies source: {params.phylo_source_dir}" >> {log}
+        echo "Family databases directory: {params.family_db_dir}" >> {log}
+        echo "Phylogenetic analysis enabled: {params.phylo_enabled}" >> {log}
+        echo "" >> {log}
+        
+        # Initialize counters
+        TOTAL_FAMILIES=0
+        PHYLO_MERGED=0
+        
+        # Process each family directory
+        if [ -d "{params.family_db_dir}" ]; then
+            for family_dir in {params.family_db_dir}/*/; do
+                if [ -d "$family_dir" ]; then
+                    family_name=$(basename "$family_dir")
+                    TOTAL_FAMILIES=$((TOTAL_FAMILIES + 1))
+                    
+                    echo "Processing family: $family_name" >> {log}
+                    
+                    # Create phylogenies subdirectory
+                    mkdir -p "$family_dir/phylogenies"
+                    
+                    # Copy phylogeny files if they exist and phylo is enabled
+                    if [ "{params.phylo_enabled}" = "True" ] && [ -d "{params.phylo_source_dir}/$family_name" ]; then
+                        echo "  Copying phylogeny files for $family_name" >> {log}
+                        
+                        # Copy all files from phylogenies source to family subdirectory
+                        if cp -r {params.phylo_source_dir}/$family_name/* "$family_dir/phylogenies/" 2>/dev/null; then
+                            PHYLO_MERGED=$((PHYLO_MERGED + 1))
+                            echo "  ✓ Successfully copied phylogeny files" >> {log}
+                            
+                            # List what was copied
+                            echo "    Files copied:" >> {log}
+                            ls -la "$family_dir/phylogenies/" | while read line; do
+                                echo "      $line" >> {log}
+                            done
+                        else
+                            echo "  ⚠ No phylogeny files found for $family_name" >> {log}
+                        fi
+                    else
+                        if [ "{params.phylo_enabled}" != "True" ]; then
+                            echo "  Phylogenetic analysis disabled, skipping" >> {log}
+                        else
+                            echo "  No phylogeny directory found for $family_name" >> {log}
+                        fi
+                    fi
+                fi
+            done
+        else
+            echo "ERROR: Family databases directory not found: {params.family_db_dir}" >> {log}
+            exit 1
+        fi
+        
+        echo "" >> {log}
+        echo "=== Report Merging Summary ===" >> {log}
+        echo "Total families processed: $TOTAL_FAMILIES" >> {log}
+        echo "Families with phylogenies merged: $PHYLO_MERGED" >> {log}
+        
+        # Verify results
+        if [ "$TOTAL_FAMILIES" -gt 0 ]; then
+            echo "Report merging completed successfully" >> {log}
+            touch {output.marker}
+        else
+            echo "ERROR: No families found to process" >> {log}
+            exit 1
+        fi
+        
+        echo "=== Report Merging Completed ===" >> {log}
         echo "End time: $(date)" >> {log}
         """
 
@@ -1605,10 +1726,11 @@ rule archive_final_results:
 # ==================
 
 rule all:
-    """Main pipeline target - produces final scored output and family databases"""
+    """Main pipeline target - produces final scored output and family databases with phylogenies"""
     input:
         f"{get_results_dir()}/result_output.tsv",
         f"{get_results_dir()}/families_split.ok",
+        f"{get_results_dir()}/reports_merged_to_families.ok",
         f"{get_results_dir()}/family_databases_compressed.ok",
         f"{get_results_dir()}/country_representatives_selected.ok",
         f"{get_results_dir()}/stats_report_generated.ok",

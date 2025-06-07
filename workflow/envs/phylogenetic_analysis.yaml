@@ -12,3 +12,8 @@ dependencies:
   - mafft=7.*      # Alternative alignment method
   - iqtree=2.*     # Phylogenetic tree construction
   - fasttree=2.*   # Fast phylogenetic tree construction
+  - ete3=3.1.*     # Tree manipulation and PDF generation
+  - matplotlib>=3.5.0  # Compatible with existing environments
+  - pyqt=5.*       # GUI toolkit required by ETE3
+  - xorg-libxext   # X11 extension library for headless operation
+  - xorg-libxrender # X11 render extension

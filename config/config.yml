@@ -15,8 +15,8 @@ LOG_LEVEL: "INFO"
 # -------------------------------
 # Output directory configuration
 # -------------------------------
-RESULTS_DIR: "results"  # Default results directory - can be overridden
-LOG_DIR: "logs"  # Default log directory - can be overridden
+RESULTS_DIR: "results_phylo_pdf6"  # Default results directory - can be overridden
+LOG_DIR: "logs_phylo_pdf6"  # Default log directory - can be overridden
 
 # -------------------------------
 # Pre-scoring filter options
@@ -85,7 +85,7 @@ REMOVE_ORIGINAL_DBS: false  # Keep originals for safety initially
 # -------------------------------
 # Statistics Report Configuration
 # ------------------------------
-SKIP_DETAILED_TAXONOMY: true     # Skip detailed family-by-order pages for faster execution
+SKIP_DETAILED_TAXONOMY: false     # Skip detailed family-by-order pages for faster execution
 STATS_REPORT_FAST_MODE: false    # Use true to specify sub-sampling for very large datasets (>5M records)
 STATS_REPORT_SAMPLE_SIZE: 100000 # Sample size for fast mode
 STATS_REPORT_MEMORY_MB: 32000    # Memory in MB for Snakemake resource allocation
@@ -103,7 +103,7 @@ PHYLO_DATABASE: "bold.db"        # SQLite database name (will be found in RESULT
 
 # Analysis scope and filtering
 PHYLO_MIN_OTUS: 3                # Minimum number of OTUs required per family for analysis
-PHYLO_MAX_FAMILIES: 2            # Maximum families to process (0 = all families, number = limit for testing)
+PHYLO_MAX_FAMILIES: 0            # Maximum families to process (0 = all families, number = limit for testing)
 PHYLO_MIN_SEQUENCE_LENGTH: 200   # Minimum sequence length in base pairs
 PHYLO_TARGET_FAMILIES: []        # Specific families to analyze (empty = all families meeting criteria)
                                  # Example: ["Libellulidae", "Coenagrionidae", "Aeshnidae"]
@@ -121,15 +121,15 @@ PHYLO_OUTGROUP_STRATEGY: "diverse"  # Options: "diverse", "random"
                                     # - random: Random selection from available outgroups
 
 # Software configuration
-PHYLO_ALIGNMENT_METHOD: "mafft"   # Options: "mafft", "muscle"
-PHYLO_ALIGNMENT_ALGORITHM: "localpair" # MAFFT algorithm: "auto", "linsi", "ginsi", "einsi", "localpair"
-PHYLO_TREE_METHOD: "iqtree"     # Options: "fasttree", "iqtree"
-PHYLO_TREE_MODEL: "gtr"           # Substitution model: "gtr", "jc", "nt" (for FastTree)
-PHYLO_BOOTSTRAP: 100             # Bootstrap replicates (for IQ-TREE only)
+PHYLO_ALIGNMENT_METHOD: "mafft"        # Options: "mafft", "muscle"
+PHYLO_ALIGNMENT_ALGORITHM: "auto"      # MAFFT algorithm: "auto", "linsi", "ginsi", "einsi", "localpair"
+PHYLO_TREE_METHOD: "iqtree"            # Options: "fasttree", "iqtree"
+PHYLO_TREE_MODEL: "gtr"                # Substitution model: "gtr", "jc", "nt" (for FastTree)
+PHYLO_BOOTSTRAP: 0                     # Bootstrap replicates (for IQ-TREE only)
 
 # Resource allocation
-PHYLO_THREADS: 8                  # Number of CPU threads for phylogenetic software
-PHYLO_MEMORY: "8G"                # Memory allocation for alignment and tree building
+PHYLO_THREADS: 16                  # Number of CPU threads for phylogenetic software
+PHYLO_MEMORY: "32G"                # Memory allocation for alignment and tree building
 PHYLO_MAX_RUNTIME: "02:00:00"     # Maximum runtime per family (HH:MM:SS format)
 
 # Quality control and validation
@@ -144,13 +144,13 @@ PHYLO_GENERATE_REPORT: true       # Generate comprehensive analysis report
 PHYLO_LOG_LEVEL: "INFO"           # Logging level: "DEBUG", "INFO", "WARNING", "ERROR"
 
 # Advanced options
-PHYLO_CUSTOM_PARAMETERS:          # Custom parameters for external software
-  mafft: ["--adjustdirection", "--op", "10.0", "--ep", "1.0", "--maxiterate", "1000"]  # High gap penalties for COX1 - discourages spurious gaps
-  fasttree: []                    # Additional FastTree parameters: ["-slow"]
-  iqtree: []                      # Additional IQ-TREE parameters: ["-redo"]
+PHYLO_CUSTOM_PARAMETERS:             # Custom parameters for external software
+  mafft: ["--quiet", "--adjustdirection", "--op", "10.0", "--ep", "1.0", "--maxiterate", "1000"]  # High gap penalties for COX1 - discourages spurious gaps
+  fasttree: []                       # Additional FastTree parameters: ["-slow"]
+  iqtree: ["--fast", "-m GTR+I+G"]   # Additional IQ-TREE parameters: ["-redo"]
 
 # Parallel processing (for large datasets)
-PHYLO_PARALLEL_FAMILIES: false    # Process families in parallel (requires more resources)
+PHYLO_PARALLEL_FAMILIES: true    # Process families in parallel (requires more resources)
 PHYLO_MAX_PARALLEL_JOBS: 4        # Maximum number of families to process simultaneously
 
 # Note: Output paths are dynamically constructed using RESULTS_DIR and LOG_DIR 
