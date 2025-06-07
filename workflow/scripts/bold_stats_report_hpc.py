@@ -25,6 +25,7 @@ import time
 import psutil
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import warnings
+import os
 from PIL import Image
 
 # Suppress warnings for cleaner output
@@ -341,6 +342,31 @@ class HPCBOLDStatsGenerator:
     def get_curation_categories(self):
         """Get species counts for different curation categories"""
         print("Getting curation categories...")
+        
+        # First check if required tables exist
+        tables_to_check = ['bold', 'bags', 'bold_ranks']
+        missing_tables = []
+        
+        for table in tables_to_check:
+            try:
+                result = pd.read_sql_query(f"SELECT COUNT(*) FROM {table} LIMIT 1", self.conn)
+            except Exception as e:
+                missing_tables.append(table)
+                print(f"Table {table} does not exist or is empty: {e}")
+        
+        if missing_tables:
+            print(f"ERROR: Required tables are missing: {missing_tables}")
+            print("The curation categories analysis requires:")
+            print("- bold table (main data)")
+            print("- bags table (BAGS grades)")  
+            print("- bold_ranks table (ranking scores)")
+            print("Ensure the pipeline has completed the ranking steps before running stats report.")
+            
+            # Set all values to 0 when tables are missing
+            for key in ['auto_curatable', 'needs_attention', 'manual_intervention']:
+                self.stats[key] = 0
+            return
+        
         queries = {
             'auto_curatable': """
                 SELECT COUNT(DISTINCT bold.species) 
@@ -370,9 +396,18 @@ class HPCBOLDStatsGenerator:
                     result = pd.read_sql_query(sample_query, self.conn)
                 else:
                     result = pd.read_sql_query(query, self.conn)
-                self.stats[key] = result.iloc[0, 0]
+                
+                # Handle NULL/NaN values from SQL
+                value = result.iloc[0, 0]
+                if pd.isna(value) or value is None:
+                    self.stats[key] = 0
+                else:
+                    self.stats[key] = int(value)
+                    
             except Exception as e:
                 print(f"Error getting {key}: {e}")
+                # Print more detailed error information
+                print(f"Query was: {query}")
                 self.stats[key] = 0
         self.memory_monitor.log_memory("curation_categories")
     
@@ -645,12 +680,10 @@ class HPCBOLDStatsGenerator:
         summary_text = f"""
 SUMMARY STATISTICS {mode_note}
 
-Records processed: {self.stats.get('records_processed', 'N/A')}
 Total records: {self.stats.get('total_records', 0):,}
 Unique species: {self.stats.get('species_count', 0):,}
 Unique BINs: {self.stats.get('bins_count', 0):,}
 Unique OTUs: {self.stats.get('otus_count', 0):,}
-Unique Haplotypes: {self.stats.get('haplotypes_count', 0):,}
 Records without BIN: {self.stats.get('records_without_bin', 0):,}
 
 CURATION CATEGORIES
@@ -658,12 +691,6 @@ CURATION CATEGORIES
 Auto-curatable species: {self.stats.get('auto_curatable', 0):,}
 Needs attention: {self.stats.get('needs_attention', 0):,}
 Manual intervention: {self.stats.get('manual_intervention', 0):,}
-
-COUNTRY REPRESENTATIVES
-
-Total representatives: {country_reps.get('total_representatives', 'N/A')}
-Countries represented: {country_reps.get('countries_represented', 'N/A')}
-Species represented: {country_reps.get('species_represented', 'N/A')}
 
 PROCESSING PERFORMANCE
 
@@ -708,7 +735,7 @@ Grade C = Species has > 1 BIN (BIN splitting)
 
 Grade D = Species has < 3 specimens in 1 BIN
 
-Grade E = BIN with > 1 species (BIN sharing, includes Genus sp. or similar)
+Grade E = BIN with > 1 species (BIN sharing)
 
 Grade F = other"""
         
@@ -740,7 +767,7 @@ Grade F = other"""
         try:
             # Load and display the rank image
             from PIL import Image
-            img_path = r"C:\GitHub\bold-library-curation\doc\bold-curation-ranks.png"
+            img_path = os.path.join(os.path.dirname(__file__), "..", "..", "doc", "bold-curation-ranks.png")
             img = Image.open(img_path)
             ax2.imshow(img)
             ax2.set_title('Rank Categories')
@@ -854,11 +881,31 @@ Grade F = other"""
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11, 8.5))
         
         categories = ['Auto-curatable', 'Needs attention', 'Manual intervention']
-        counts = [self.stats['auto_curatable'], self.stats['needs_attention'], 
-                 self.stats['manual_intervention']]
+        # Handle NaN/None values by converting to 0
+        raw_counts = [
+            self.stats.get('auto_curatable', 0),
+            self.stats.get('needs_attention', 0),
+            self.stats.get('manual_intervention', 0)
+        ]
+        
+        # Replace any NaN/None values with 0
+        import numpy as np
+        counts = []
+        for count in raw_counts:
+            if count is None or pd.isna(count) or (isinstance(count, (int, float)) and np.isnan(count)):
+                counts.append(0)
+            else:
+                counts.append(int(count))
         
         colors = ['green', 'orange', 'red']
-        wedges, texts, autotexts = ax1.pie(counts, labels=categories, autopct='%1.1f%%', colors=colors)
+        
+        # Check if all counts are zero
+        if sum(counts) == 0:
+            # Create empty pie chart with message
+            ax1.text(0.5, 0.5, 'No data available\nfor curation categories', 
+                    ha='center', va='center', transform=ax1.transAxes, fontsize=12)
+        else:
+            wedges, texts, autotexts = ax1.pie(counts, labels=categories, autopct='%1.1f%%', colors=colors)
         ax1.set_title('Curation Categories')
         
         bars = ax2.bar(categories, counts, color=colors)

@@ -95,7 +95,7 @@ STATS_REPORT_RUNTIME: 120        # Maximum runtime in minutes (2 hours)
 # -------------------------------
 # Phylogenetic Analysis Configuration
 # -------------------------------
-PHYLO_ENABLED: false  # Master switch to enable/disable phylogenetic analysis
+PHYLO_ENABLED: true              # Master switch to enable/disable phylogenetic analysis
 
 # Database and output configuration
 PHYLO_OUTPUT_DIR: "phylogenies"  # Directory for phylogenetic outputs (relative to RESULTS_DIR)
@@ -103,7 +103,7 @@ PHYLO_DATABASE: "bold.db"        # SQLite database name (will be found in RESULT
 
 # Analysis scope and filtering
 PHYLO_MIN_OTUS: 3                # Minimum number of OTUs required per family for analysis
-PHYLO_MAX_FAMILIES: null         # Maximum families to process (null = all families, number = limit for testing)
+PHYLO_MAX_FAMILIES: 2            # Maximum families to process (0 = all families, number = limit for testing)
 PHYLO_MIN_SEQUENCE_LENGTH: 200   # Minimum sequence length in base pairs
 PHYLO_TARGET_FAMILIES: []        # Specific families to analyze (empty = all families meeting criteria)
                                  # Example: ["Libellulidae", "Coenagrionidae", "Aeshnidae"]
@@ -122,13 +122,13 @@ PHYLO_OUTGROUP_STRATEGY: "diverse"  # Options: "diverse", "random"
 
 # Software configuration
 PHYLO_ALIGNMENT_METHOD: "mafft"   # Options: "mafft", "muscle"
-PHYLO_ALIGNMENT_ALGORITHM: "auto" # MAFFT algorithm: "auto", "linsi", "ginsi", "einsi"
-PHYLO_TREE_METHOD: "fasttree"     # Options: "fasttree", "iqtree"
+PHYLO_ALIGNMENT_ALGORITHM: "localpair" # MAFFT algorithm: "auto", "linsi", "ginsi", "einsi", "localpair"
+PHYLO_TREE_METHOD: "iqtree"     # Options: "fasttree", "iqtree"
 PHYLO_TREE_MODEL: "gtr"           # Substitution model: "gtr", "jc", "nt" (for FastTree)
-PHYLO_BOOTSTRAP: 1000             # Bootstrap replicates (for IQ-TREE only)
+PHYLO_BOOTSTRAP: 100             # Bootstrap replicates (for IQ-TREE only)
 
 # Resource allocation
-PHYLO_THREADS: 4                  # Number of CPU threads for phylogenetic software
+PHYLO_THREADS: 8                  # Number of CPU threads for phylogenetic software
 PHYLO_MEMORY: "8G"                # Memory allocation for alignment and tree building
 PHYLO_MAX_RUNTIME: "02:00:00"     # Maximum runtime per family (HH:MM:SS format)
 
@@ -145,7 +145,7 @@ PHYLO_LOG_LEVEL: "INFO"           # Logging level: "DEBUG", "INFO", "WARNING", "
 
 # Advanced options
 PHYLO_CUSTOM_PARAMETERS:          # Custom parameters for external software
-  mafft: []                       # Additional MAFFT parameters: ["--maxiterate", "1000"]
+  mafft: ["--adjustdirection", "--op", "1.53", "--ep", "0.123", "--maxiterate", "1000"]  # Optimized for protein-coding genes with reverse complement detection
   fasttree: []                    # Additional FastTree parameters: ["-slow"]
   iqtree: []                      # Additional IQ-TREE parameters: ["-redo"]
 

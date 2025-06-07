@@ -46,16 +46,16 @@ class PhylogeneticPipeline:
         for dir_path in [self.fasta_dir, self.alignment_dir, self.tree_dir]:
             dir_path.mkdir(exist_ok=True)
     
-    def get_otu_representatives(self):
+    def get_otu_sequences(self):
         """
-        Get representative sequences for each OTU from the database.
+        Get sequences for each OTU from the database, including multiple species per OTU.
         
         Returns:
             dict: Family -> list of (otu_id, sequence, record_info) tuples
         """
         conn = sqlite3.connect(self.db_path)
         
-        # Get OTU representatives with sequences
+        # Get all sequences with OTU information, including bin_uri
         query = """
         SELECT DISTINCT
             b.family,
@@ -65,7 +65,8 @@ class PhylogeneticPipeline:
             b.genus,
             b.species,
             b.processid,
-            b.recordid
+            b.recordid,
+            b.bin_uri
         FROM bold b
         JOIN bold_otus o ON b.recordid = o.recordid
         WHERE b.family IS NOT NULL 
@@ -73,57 +74,63 @@ class PhylogeneticPipeline:
             AND b.nuc IS NOT NULL 
             AND b.nuc != ''
             AND LENGTH(b.nuc) > 200  -- Filter very short sequences
-        ORDER BY b.family, o.otu_id
+            AND b.genus IS NOT NULL
+            AND b.species IS NOT NULL
+        ORDER BY b.family, o.otu_id, b.genus, b.species
         """
         
         df = pd.read_sql_query(query, conn)
         conn.close()
         
-        # Group by family and select one representative per OTU
-        family_otus = defaultdict(list)
+        # Group by family and include multiple species per OTU
+        family_sequences = defaultdict(list)
         
         for family, group in df.groupby('family'):
-            # For each OTU in the family, select the longest sequence as representative
+            # For each OTU, include all unique species
             for otu_id, otu_group in group.groupby('otu_id'):
-                # Select longest sequence as representative
-                rep = otu_group.loc[otu_group['nuc'].str.len().idxmax()]
-                
-                record_info = {
-                    'otu_id': rep['otu_id'],
-                    'genus': rep['genus'],
-                    'species': rep['species'],
-                    'processid': rep['processid'],
-                    'recordid': rep['recordid'],
-                    'order': rep['order']
-                }
-                
-                family_otus[family].append((rep['otu_id'], rep['nuc'], record_info))
+                # Group by genus-species combination to get unique species
+                for (genus, species), species_group in otu_group.groupby(['genus', 'species']):
+                    # Select the longest sequence for each genus-species combination within the OTU
+                    rep = species_group.loc[species_group['nuc'].str.len().idxmax()]
+                    
+                    record_info = {
+                        'otu_id': rep['otu_id'],
+                        'genus': rep['genus'],
+                        'species': rep['species'],
+                        'processid': rep['processid'],
+                        'recordid': rep['recordid'],
+                        'order': rep['order'],
+                        'family': family,  # Add family information for outgroup labeling
+                        'bin_uri': rep['bin_uri'] if rep['bin_uri'] else 'NA'
+                    }
+                    
+                    family_sequences[family].append((rep['otu_id'], rep['nuc'], record_info))
         
-        return family_otus
+        return family_sequences
     
-    def select_outgroups(self, family_otus, target_family, num_outgroups=3):
+    def select_outgroups(self, family_sequences, target_family, num_outgroups=3):
         """
         Select outgroup sequences from other families in the same order.
         
         Args:
-            family_otus (dict): All family OTU data
+            family_sequences (dict): All family sequence data
             target_family (str): Family to find outgroups for
             num_outgroups (int): Number of outgroup sequences to select
             
         Returns:
             list: List of (otu_id, sequence, record_info) tuples for outgroups
         """
-        if target_family not in family_otus:
+        if target_family not in family_sequences:
             return []
         
         # Get the order of the target family
-        target_order = family_otus[target_family][0][2]['order']
+        target_order = family_sequences[target_family][0][2]['order']
         
         # Find other families in the same order
         other_families = [
-            family for family in family_otus.keys() 
+            family for family in family_sequences.keys() 
             if family != target_family and 
-            family_otus[family][0][2]['order'] == target_order
+            family_sequences[family][0][2]['order'] == target_order
         ]
         
         outgroups = []
@@ -131,9 +138,9 @@ class PhylogeneticPipeline:
             if len(outgroups) >= num_outgroups:
                 break
             
-            # Randomly select one OTU from this family as outgroup
-            if family_otus[other_family]:
-                outgroup = random.choice(family_otus[other_family])
+            # Randomly select one sequence from this family as outgroup
+            if family_sequences[other_family]:
+                outgroup = random.choice(family_sequences[other_family])
                 outgroups.append(outgroup)
         
         return outgroups
@@ -141,6 +148,7 @@ class PhylogeneticPipeline:
     def create_fasta_file(self, family, ingroup_sequences, outgroup_sequences):
         """
         Create a FASTA file for a family with ingroup and outgroup sequences.
+        Uses the new branch labeling format: Genus-species-otu-bin_uri-processid
         
         Args:
             family (str): Family name
@@ -154,35 +162,66 @@ class PhylogeneticPipeline:
         
         records = []
         
-        # Add ingroup sequences
+        # Add ingroup sequences with new labeling format
         for otu_id, sequence, info in ingroup_sequences:
-            seq_id = f"{family}_{otu_id}_{info['genus']}_{info['species']}_{info['processid']}"
+            # Clean values to handle None or empty values
+            genus = str(info.get('genus', 'Unknown')).replace(' ', '_')
+            species = str(info.get('species', 'sp')).replace(' ', '_')
+            otu = str(info.get('otu_id', 'NA')).replace(' ', '_')
+            bin_uri = str(info.get('bin_uri', 'NA')).replace(' ', '_')
+            processid = str(info.get('processid', 'NA')).replace(' ', '_')
+            
+            # Create sequence ID in format: Species-otu-bin_uri-processid
+            seq_id = f"{species}-{otu}-{bin_uri}-{processid}"
+            
+            # Clean any problematic characters for phylogenetic software
+            seq_id = seq_id.replace('(', '').replace(')', '').replace('[', '').replace(']', '')
+            seq_id = seq_id.replace(',', '').replace(';', '').replace(':', '').replace('|', '-')
+            
             record = SeqRecord(
                 Seq(sequence),
                 id=seq_id,
-                description=f"Ingroup | {info['genus']} {info['species']}"
+                description=f"Ingroup|{genus}_{species}|{family}"
             )
             records.append(record)
         
-        # Add outgroup sequences
+        # Add outgroup sequences with new labeling format
         for otu_id, sequence, info in outgroup_sequences:
-            seq_id = f"OUTGROUP_{otu_id}_{info['genus']}_{info['species']}_{info['processid']}"
+            # Clean values to handle None or empty values
+            genus = str(info.get('genus', 'Unknown')).replace(' ', '_')
+            species = str(info.get('species', 'sp')).replace(' ', '_')
+            otu = str(info.get('otu_id', 'NA')).replace(' ', '_')
+            bin_uri = str(info.get('bin_uri', 'NA')).replace(' ', '_')
+            processid = str(info.get('processid', 'NA')).replace(' ', '_')
+            
+            # Create sequence ID with OUTGROUP prefix
+            seq_id = f"OUTGROUP-{species}-{otu}-{bin_uri}-{processid}"
+            
+            # Clean any problematic characters for phylogenetic software
+            seq_id = seq_id.replace('(', '').replace(')', '').replace('[', '').replace(']', '')
+            seq_id = seq_id.replace(',', '').replace(';', '').replace(':', '').replace('|', '-')
+            
             record = SeqRecord(
                 Seq(sequence),
                 id=seq_id,
-                description=f"Outgroup | {info['genus']} {info['species']}"
+                description=f"Outgroup|{genus}_{species}|{info.get('family', 'Unknown')}"
             )
             records.append(record)
         
         SeqIO.write(records, fasta_file, "fasta")
         return fasta_file
     
-    def align_sequences(self, fasta_file):
+    def align_sequences(self, fasta_file, method="mafft"):
         """
-        Align sequences using MUSCLE.
+        Align sequences using MAFFT or MUSCLE.
+        MAFFT is optimized for protein-coding genes with:
+        - Automatic reverse complement detection (--adjustdirection)
+        - Lower gap penalties suitable for coding sequences
+        - L-INS-i algorithm for high accuracy alignment
         
         Args:
             fasta_file (Path): Path to input FASTA file
+            method (str): Alignment method ("mafft" or "muscle")
             
         Returns:
             Path: Path to alignment file
@@ -190,18 +229,92 @@ class PhylogeneticPipeline:
         family = fasta_file.stem
         alignment_file = self.alignment_dir / f"{family}_aligned.fasta"
         
-        cmd = [
-            "muscle",
-            "-in", str(fasta_file),
-            "-out", str(alignment_file)
-        ]
-        
-        try:
-            subprocess.run(cmd, check=True, capture_output=True)
-            print(f"✓ Aligned sequences for {family}")
-            return alignment_file
-        except subprocess.CalledProcessError as e:
-            print(f"✗ Error aligning {family}: {e}")
+        if method.lower() == "mafft":
+            cmd = [
+                "mafft",
+                "--adjustdirection",  # Detect and correct reverse complement sequences
+                "--op", "1.53",       # Lower gap opening penalty for protein-coding genes
+                "--ep", "0.123",      # Lower gap extension penalty
+                "--maxiterate", "1000",  # Allow sufficient refinement iterations
+                "--localpair",        # Use L-INS-i for higher accuracy
+                "--quiet",            # Reduce output
+                str(fasta_file)
+            ]
+            
+            try:
+                with open(alignment_file, 'w') as output_file:
+                    result = subprocess.run(cmd, check=True, stdout=output_file, 
+                                          stderr=subprocess.PIPE, text=True)
+                print(f"✓ Aligned sequences for {family} using MAFFT")
+                return alignment_file
+            except subprocess.CalledProcessError as e:
+                print(f"✗ Error aligning {family} with MAFFT: {e}")
+                if e.stderr:
+                    print(f"   stderr: {e.stderr}")
+                return None
+                
+        elif method.lower() == "muscle":
+            # Check MUSCLE version and use appropriate syntax
+            try:
+                # Test MUSCLE version
+                version_result = subprocess.run(["muscle", "-version"], 
+                                              capture_output=True, text=True, timeout=10)
+                
+                if version_result.returncode == 0 and "5." in version_result.stdout:
+                    # MUSCLE 5.x syntax
+                    cmd = [
+                        "muscle",
+                        "-align", str(fasta_file),
+                        "-output", str(alignment_file)
+                    ]
+                else:
+                    # MUSCLE 3.x/4.x syntax (fallback)
+                    cmd = [
+                        "muscle",
+                        "-in", str(fasta_file),
+                        "-out", str(alignment_file)
+                    ]
+            except (subprocess.TimeoutExpired, subprocess.CalledProcessError, FileNotFoundError):
+                # If version check fails, try MUSCLE 5.x syntax first (most likely on modern systems)
+                cmd = [
+                    "muscle",
+                    "-align", str(fasta_file),
+                    "-output", str(alignment_file)
+                ]
+            
+            try:
+                result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+                print(f"✓ Aligned sequences for {family} using MUSCLE")
+                return alignment_file
+            except subprocess.CalledProcessError as e:
+                # If MUSCLE 5.x syntax failed, try the old syntax
+                if "-align" in cmd:
+                    print(f"   MUSCLE 5.x syntax failed, trying legacy syntax...")
+                    cmd_legacy = [
+                        "muscle",
+                        "-in", str(fasta_file),
+                        "-out", str(alignment_file)
+                    ]
+                    try:
+                        result = subprocess.run(cmd_legacy, check=True, capture_output=True, text=True)
+                        print(f"✓ Aligned sequences for {family} using MUSCLE (legacy syntax)")
+                        return alignment_file
+                    except subprocess.CalledProcessError as e2:
+                        print(f"✗ Error aligning {family} with both MUSCLE syntaxes:")
+                        print(f"   MUSCLE 5.x error: {e}")
+                        print(f"   Legacy error: {e2}")
+                        if e.stderr:
+                            print(f"   MUSCLE 5.x stderr: {e.stderr}")
+                        if e2.stderr:
+                            print(f"   Legacy stderr: {e2.stderr}")
+                        return None
+                else:
+                    print(f"✗ Error aligning {family} with MUSCLE: {e}")
+                    if e.stderr:
+                        print(f"   stderr: {e.stderr}")
+                    return None
+        else:
+            print(f"✗ Unknown alignment method: {method}")
             return None
     
     def build_tree(self, alignment_file, bootstrap=1000):
@@ -234,31 +347,35 @@ class PhylogeneticPipeline:
             print(f"✗ Error building tree for {family}: {e}")
             return None
     
-    def run_pipeline(self, min_otus=3, max_families=None):
+    def run_pipeline(self, min_otus=3, max_families=None, alignment_method="mafft"):
         """
         Run the complete phylogenetic analysis pipeline.
         
         Args:
             min_otus (int): Minimum number of OTUs required for analysis
             max_families (int): Maximum number of families to process (for testing)
+            alignment_method (str): Alignment method ("mafft" or "muscle")
         """
         print("Starting phylogenetic analysis pipeline...")
         print(f"Database: {self.db_path}")
         print(f"Output directory: {self.output_dir}")
         print("="*60)
         
-        # Get OTU representatives
-        print("1. Extracting OTU representatives...")
-        family_otus = self.get_otu_representatives()
+        # Get sequences for each family (including multiple species per OTU)
+        print("1. Extracting sequences from each OTU (including multiple species)...")
+        family_sequences = self.get_otu_sequences()
         
-        print(f"Found {len(family_otus)} families:")
-        for family, otus in family_otus.items():
-            print(f"  - {family}: {len(otus)} OTUs")
+        print(f"Found {len(family_sequences)} families:")
+        for family, sequences in family_sequences.items():
+            # Count unique OTUs and unique species
+            unique_otus = len(set(seq[2]['otu_id'] for seq in sequences))
+            unique_species = len(set(f"{seq[2]['genus']} {seq[2]['species']}" for seq in sequences))
+            print(f"  - {family}: {len(sequences)} sequences, {unique_otus} OTUs, {unique_species} species")
         
-        # Filter families with sufficient OTUs
+        # Filter families with sufficient sequences
         families_to_analyze = {
-            family: otus for family, otus in family_otus.items() 
-            if len(otus) >= min_otus
+            family: sequences for family, sequences in family_sequences.items() 
+            if len(set(seq[2]['otu_id'] for seq in sequences)) >= min_otus
         }
         
         if max_families:
@@ -269,11 +386,14 @@ class PhylogeneticPipeline:
         
         results = {}
         
-        for i, (family, otus) in enumerate(families_to_analyze.items(), 1):
-            print(f"\n{i}. Processing {family} ({len(otus)} OTUs)")
+        for i, (family, sequences) in enumerate(families_to_analyze.items(), 1):
+            unique_otus = len(set(seq[2]['otu_id'] for seq in sequences))
+            unique_species = len(set(f"{seq[2]['genus']} {seq[2]['species']}" for seq in sequences))
+            
+            print(f"\n{i}. Processing {family} ({len(sequences)} sequences, {unique_otus} OTUs, {unique_species} species)")
             
             # Select outgroups
-            outgroups = self.select_outgroups(family_otus, family)
+            outgroups = self.select_outgroups(family_sequences, family)
             print(f"   Selected {len(outgroups)} outgroups")
             
             if len(outgroups) == 0:
@@ -281,11 +401,11 @@ class PhylogeneticPipeline:
                 continue
             
             # Create FASTA file
-            fasta_file = self.create_fasta_file(family, otus, outgroups)
+            fasta_file = self.create_fasta_file(family, sequences, outgroups)
             print(f"   Created FASTA: {fasta_file.name}")
             
             # Align sequences
-            alignment_file = self.align_sequences(fasta_file)
+            alignment_file = self.align_sequences(fasta_file, alignment_method)
             if alignment_file is None:
                 continue
             
@@ -298,7 +418,9 @@ class PhylogeneticPipeline:
                 'fasta': fasta_file,
                 'alignment': alignment_file,
                 'tree': tree_file,
-                'num_ingroups': len(otus),
+                'num_sequences': len(sequences),
+                'num_otus': unique_otus,
+                'num_species': unique_species,
                 'num_outgroups': len(outgroups)
             }
         
@@ -308,7 +430,8 @@ class PhylogeneticPipeline:
         print(f"Successfully processed {len(results)} families:")
         
         for family, result in results.items():
-            print(f"  - {family}: {result['num_ingroups']} ingroups, "
+            print(f"  - {family}: {result['num_sequences']} sequences, "
+                  f"{result['num_otus']} OTUs, {result['num_species']} species, "
                   f"{result['num_outgroups']} outgroups")
         
         return results
@@ -331,7 +454,9 @@ class PhylogeneticPipeline:
             
             for family, result in results.items():
                 f.write(f"Family: {family}\n")
-                f.write(f"  Ingroup OTUs: {result['num_ingroups']}\n")
+                f.write(f"  Total sequences: {result['num_sequences']}\n")
+                f.write(f"  Unique OTUs: {result['num_otus']}\n")
+                f.write(f"  Unique species: {result['num_species']}\n")
                 f.write(f"  Outgroups: {result['num_outgroups']}\n")
                 f.write(f"  Tree file: {result['tree'].name}\n\n")
         
@@ -339,40 +464,116 @@ class PhylogeneticPipeline:
 
 
 def main():
-    """Main function to run the pipeline."""
+    """Main function to run the pipeline with command-line arguments."""
+    import argparse
     
-    # Configuration
-    DB_PATH = r"C:\GitHub\bold-library-curation\results\__test_6\results\bold.db"
-    OUTPUT_DIR = "phylogenies"
-    MIN_OTUS = 3  # Minimum OTUs per family for analysis
-    MAX_FAMILIES = None  # Set to a number for testing, None for all families
+    parser = argparse.ArgumentParser(description="Phylogenetic Analysis Pipeline for BOLD Database")
+    parser.add_argument("--database", required=True, help="Path to SQLite database file")
+    parser.add_argument("--output-dir", default="phylogenies", help="Output directory for results")
+    parser.add_argument("--min-otus", type=int, default=3, help="Minimum OTUs per family for analysis")
+    parser.add_argument("--max-families", type=int, help="Maximum families to process (for testing)")
+    parser.add_argument("--selection-strategy", default="best_quality", 
+                       choices=["longest", "random", "best_quality"],
+                       help="Strategy for selecting OTU representatives")
+    parser.add_argument("--num-outgroups", type=int, default=3, help="Number of outgroup sequences")
+    parser.add_argument("--alignment-method", default="mafft", 
+                       choices=["mafft", "muscle"], help="Alignment method")
+    parser.add_argument("--tree-method", default="fasttree",
+                       choices=["fasttree", "iqtree"], help="Tree building method")
+    parser.add_argument("--bootstrap", type=int, default=1000, help="Bootstrap replicates (IQ-TREE)")
+    parser.add_argument("--threads", type=int, default=4, help="Number of CPU threads")
+    parser.add_argument("--log-level", default="INFO", help="Logging level")
+    
+    args = parser.parse_args()
+    
+    # Print system and tool information for debugging
+    print("System Information:")
+    print(f"Python version: {sys.version}")
+    print(f"Working directory: {os.getcwd()}")
+    print(f"PATH: {os.environ.get('PATH', 'Not set')}")
     
     # Check if required external programs are available
-    required_programs = ['muscle', 'iqtree']
+    required_programs = []
+    if args.alignment_method == "mafft":
+        required_programs.append("mafft")
+    elif args.alignment_method == "muscle":
+        required_programs.append("muscle")
+    
+    if args.tree_method == "iqtree":
+        required_programs.append("iqtree")
+    elif args.tree_method == "fasttree":
+        required_programs.extend(["fasttree", "FastTree"])  # Try both names
+    
     missing_programs = []
+    program_versions = {}
     
     for program in required_programs:
-        try:
-            subprocess.run([program, '--help'], capture_output=True)
-        except FileNotFoundError:
-            missing_programs.append(program)
+        if program in ["fasttree", "FastTree"]:
+            # Special handling for FastTree - try both names
+            found = False
+            for ft_name in ["fasttree", "FastTree"]:
+                try:
+                    result = subprocess.run([ft_name], capture_output=True, timeout=5, text=True)
+                    found = True
+                    program_versions[program] = f"{ft_name} found"
+                    break
+                except (FileNotFoundError, subprocess.TimeoutExpired):
+                    continue
+            if not found:
+                missing_programs.append("fasttree/FastTree")
+        else:
+            try:
+                if program == "muscle":
+                    # Check MUSCLE version specifically
+                    version_result = subprocess.run([program, "-version"], capture_output=True, timeout=5, text=True)
+                    if version_result.returncode == 0:
+                        program_versions[program] = version_result.stdout.strip()
+                    else:
+                        # Try alternative version commands
+                        help_result = subprocess.run([program, "-h"], capture_output=True, timeout=5, text=True)
+                        program_versions[program] = f"Available (help accessible)"
+                else:
+                    subprocess.run([program, '--help'], capture_output=True, timeout=5)
+                    program_versions[program] = "Available"
+            except (FileNotFoundError, subprocess.TimeoutExpired):
+                missing_programs.append(program)
+    
+    print("\nTool Availability:")
+    for program, version in program_versions.items():
+        print(f"  {program}: {version}")
     
     if missing_programs:
-        print(f"Missing required programs: {', '.join(missing_programs)}")
+        print(f"\nMissing required programs: {', '.join(missing_programs)}")
         print("\nInstallation instructions:")
-        print("- MUSCLE: https://www.drive5.com/muscle/downloads.htm")
-        print("- IQ-TREE: http://www.iqtree.org/")
-        return
+        if "mafft" in missing_programs:
+            print("- MAFFT: conda install -c bioconda mafft")
+        if "muscle" in missing_programs:
+            print("- MUSCLE: conda install -c bioconda muscle")
+        if "iqtree" in missing_programs:
+            print("- IQ-TREE: conda install -c bioconda iqtree")
+        if "fasttree/FastTree" in missing_programs:
+            print("- FastTree: conda install -c bioconda fasttree")
+        return 1
     
     # Run pipeline
-    pipeline = PhylogeneticPipeline(DB_PATH, OUTPUT_DIR)
-    results = pipeline.run_pipeline(min_otus=MIN_OTUS, max_families=MAX_FAMILIES)
+    pipeline = PhylogeneticPipeline(args.database, args.output_dir)
+    results = pipeline.run_pipeline(
+        min_otus=args.min_otus, 
+        max_families=args.max_families,
+        alignment_method=args.alignment_method
+    )
     
     if results:
         pipeline.generate_summary_report(results)
+        print(f"Phylogenetic analysis completed successfully!")
+        print(f"Generated {len(results)} family phylogenies")
+        print(f"Output directory: {args.output_dir}")
+        return 0
     else:
         print("No families were successfully processed.")
+        return 1
 
 
 if __name__ == "__main__":
-    main()
+    import sys
+    sys.exit(main())

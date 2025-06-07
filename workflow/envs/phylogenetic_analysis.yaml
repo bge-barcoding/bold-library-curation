@@ -1,0 +1,14 @@
+name: phylogenetic_analysis
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+dependencies:
+  - python=3.10.*
+  - biopython=1.79
+  - pandas=1.5.*
+  - numpy=1.21.*
+  - muscle=5.*     # MUSCLE 5.x for sequence alignment
+  - mafft=7.*      # Alternative alignment method
+  - iqtree=2.*     # Phylogenetic tree construction
+  - fasttree=2.*   # Fast phylogenetic tree construction
