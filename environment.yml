@@ -30,6 +30,11 @@ dependencies:
   - hmmer
   - jq
   - curl
+  - bc
+  - mafft
+  - fasttree
+  - iqtree
+  - muscle
   
   # OTU clustering tools (pin versions for reproducibility)
   - vsearch=2.22.1
@@ -38,3 +43,10 @@ dependencies:
   # Python packages for compatibility
   - pandas=1.5.*  # Older version to avoid GLIBC issues
   - numpy=1.21.*  # Compatible with pandas 1.5
+  - biopython=1.79  # For phylogenetic sequence analysis
+  
+  # Additional Python packages for statistics reports
+  - matplotlib=3.5.*  # Compatible with older numpy/pandas
+  - seaborn=0.11.*   # Compatible version
+  - psutil=5.8.*     # System monitoring
+  - scipy=1.7.*      # Scientific computing (compatible with numpy 1.21)

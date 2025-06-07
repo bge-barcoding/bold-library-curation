@@ -1,8 +1,6 @@
-# Output directory configuration
-RESULTS_DIR: "results"  # Default results directory - can be overridden
-LOG_DIR: "logs"  # Default log directory - can be overridden
-
+# -------------------------------
 # Input data configuration
+# -------------------------------
 BOLD_TSV: resources/test_data/test_odonata_large.tsv
 SCHEMA: workflow/scripts/schema_with_ranks.sql
 INDEXES: workflow/scripts/indexes.sql
@@ -11,21 +9,18 @@ INDEXES: workflow/scripts/indexes.sql
 LIBS: lib/
 PATH: lib/
 
-# Processing configuration
-TAXONOMY_CHUNK_SIZE: 10000  # Adjust based on your system's memory
-CRITERIA: "COLLECTION_DATE COLLECTORS COORD COUNTRY REGION SECTOR HAS_IMAGE IDENTIFIER ID_METHOD INSTITUTION MUSEUM_ID PUBLIC_VOUCHER SEQ_QUALITY SITE SPECIES_ID TYPE_SPECIMEN"
-
-# Target list configuration
-TARGET_LIST: resources/test_data/test_odonata_spec.csv
-USE_TARGET_LIST: false
-PROJECT_NAME: "bold-curation"
-TAXON_LEVEL: "species"
-KINGDOM: "Animalia"
-
 # Logging configuration
 LOG_LEVEL: "INFO"
 
+# -------------------------------
+# Output directory configuration
+# -------------------------------
+RESULTS_DIR: "results"  # Default results directory - can be overridden
+LOG_DIR: "logs"  # Default log directory - can be overridden
+
+# -------------------------------
 # Pre-scoring filter options
+# -------------------------------
 ENABLE_PRESCORING_FILTER: true  # Master switch true / false
 FILTER_TAXA: true  # true / false
 FILTER_TAXA_LIST: "resources/test_data/test_odonata_spec.csv"
@@ -36,12 +31,127 @@ FILTER_SPECIES: true  # Only include records with valid species names (not null,
 MARKER: "COI-5P"  # Specify marker code (e.g., "COI-5P") to filter by marker_code field, or null to disable marker filtering
 PRESCORING_FILTERED_OUTPUT: "test_odonata_large_filtered.tsv"  # Filename only - will be placed in RESULTS_DIR
 
-# Family splitting configuration
-FAMILY_SIZE_THRESHOLD: 10000  # Split families larger than this by subfamily
+# -------------------------------
+# Processing configuration
+# -------------------------------
+TAXONOMY_CHUNK_SIZE: 10000  # Adjust based on your system's memory
+CRITERIA: "COLLECTION_DATE COLLECTORS COORD COUNTRY REGION SECTOR HAS_IMAGE IDENTIFIER ID_METHOD INSTITUTION MUSEUM_ID PUBLIC_VOUCHER SEQ_QUALITY SITE SPECIES_ID TYPE_SPECIMEN"
 
 # OTU Clustering configuration
 OTU_CLUSTERING_THRESHOLD: 0.99  # Similarity threshold (99%)
 OTU_CLUSTERING_THREADS: 8       # Number of threads for VSEARCH
+
+# -------------------------------
+# Target list configuration (after processing)
+# -------------------------------
+TARGET_LIST: resources/test_data/test_odonata_spec.csv
+USE_TARGET_LIST: false
+PROJECT_NAME: "bold-curation"
+TAXON_LEVEL: "species"
+KINGDOM: "Animalia"
+
+# -------------------------------
+# Family splitting configuration
+# -------------------------------
+# Kingdom filtering for export (default: all kingdoms)
+# EXPORT_KINGDOMS: ["all"]                    # Export all kingdoms (default)
+# EXPORT_KINGDOMS: ["Animalia"]               # Only animals
+# EXPORT_KINGDOMS: ["Animalia", "Plantae"]    # Animals and plants
+EXPORT_KINGDOMS: ["Animalia"]
+
+# Family size threshold for subfamily splitting (default: 10000)
+FAMILY_SIZE_THRESHOLD: 10000 # Split families larger than this by subfamily
+
+# SLURM Job Array Configuration
+# Number of parallel jobs in the array (default: 64)
+FAMILY_ARRAY_SIZE: 64
+
+# Number of worker threads per job (default: 4)
+# Total cores used = FAMILY_ARRAY_SIZE * WORKERS_PER_JOB
+WORKERS_PER_JOB: 4
+
+# SLURM Resource Allocation per Job
+# Memory per job (default: 8G)
+JOB_MEMORY: "8G"
+
+# Maximum time per job (default: 4 hours)
+JOB_TIME: "04:00:00"
+
+# Compression settings
+COMPRESSION_WORKERS: 16  # Adjust based on your HPC node specs
+COMPRESS_AFTER_SPLIT: true  # Enable/disable compression
+REMOVE_ORIGINAL_DBS: false  # Keep originals for safety initially
+
+# -------------------------------
+# Statistics Report Configuration
+# ------------------------------
+SKIP_DETAILED_TAXONOMY: true     # Skip detailed family-by-order pages for faster execution
+STATS_REPORT_FAST_MODE: false    # Use true to specify sub-sampling for very large datasets (>5M records)
+STATS_REPORT_SAMPLE_SIZE: 100000 # Sample size for fast mode
+STATS_REPORT_MEMORY_MB: 32000    # Memory in MB for Snakemake resource allocation
+STATS_REPORT_CPU: 8              # CPU cores for report generation
+STATS_REPORT_RUNTIME: 120        # Maximum runtime in minutes (2 hours)
+
+# -------------------------------
+# Phylogenetic Analysis Configuration
+# -------------------------------
+PHYLO_ENABLED: true              # Master switch to enable/disable phylogenetic analysis
+
+# Database and output configuration
+PHYLO_OUTPUT_DIR: "phylogenies"  # Directory for phylogenetic outputs (relative to RESULTS_DIR)
+PHYLO_DATABASE: "bold.db"        # SQLite database name (will be found in RESULTS_DIR)
+
+# Analysis scope and filtering
+PHYLO_MIN_OTUS: 3                # Minimum number of OTUs required per family for analysis
+PHYLO_MAX_FAMILIES: 2            # Maximum families to process (0 = all families, number = limit for testing)
+PHYLO_MIN_SEQUENCE_LENGTH: 200   # Minimum sequence length in base pairs
+PHYLO_TARGET_FAMILIES: []        # Specific families to analyze (empty = all families meeting criteria)
+                                 # Example: ["Libellulidae", "Coenagrionidae", "Aeshnidae"]
+
+# OTU representative selection strategies
+PHYLO_SELECTION_STRATEGY: "best_quality"  # Options: "longest", "random", "best_quality"
+                                          # - longest: Select longest sequence per OTU
+                                          # - random: Random sequence per OTU
+                                          # - best_quality: Prefer sequences without ambiguous bases, then longest
+
+# Outgroup selection
+PHYLO_NUM_OUTGROUPS: 3           # Number of outgroup sequences to include per family tree
+PHYLO_OUTGROUP_STRATEGY: "diverse"  # Options: "diverse", "random"
+                                    # - diverse: Select from different families to maximize diversity
+                                    # - random: Random selection from available outgroups
+
+# Software configuration
+PHYLO_ALIGNMENT_METHOD: "mafft"   # Options: "mafft", "muscle"
+PHYLO_ALIGNMENT_ALGORITHM: "localpair" # MAFFT algorithm: "auto", "linsi", "ginsi", "einsi", "localpair"
+PHYLO_TREE_METHOD: "iqtree"     # Options: "fasttree", "iqtree"
+PHYLO_TREE_MODEL: "gtr"           # Substitution model: "gtr", "jc", "nt" (for FastTree)
+PHYLO_BOOTSTRAP: 100             # Bootstrap replicates (for IQ-TREE only)
+
+# Resource allocation
+PHYLO_THREADS: 8                  # Number of CPU threads for phylogenetic software
+PHYLO_MEMORY: "8G"                # Memory allocation for alignment and tree building
+PHYLO_MAX_RUNTIME: "02:00:00"     # Maximum runtime per family (HH:MM:SS format)
+
+# Quality control and validation
+PHYLO_VALIDATE_SEQUENCES: true    # Perform sequence validation before analysis
+PHYLO_REMOVE_DUPLICATES: true     # Remove duplicate sequences within families
+PHYLO_CHECK_OUTGROUPS: true       # Validate outgroup selection (same order requirement)
+
+# Output options
+PHYLO_SAVE_METADATA: true         # Save detailed metadata for each analysis
+PHYLO_COMPRESS_OUTPUTS: false     # Compress output files to save space
+PHYLO_GENERATE_REPORT: true       # Generate comprehensive analysis report
+PHYLO_LOG_LEVEL: "INFO"           # Logging level: "DEBUG", "INFO", "WARNING", "ERROR"
+
+# Advanced options
+PHYLO_CUSTOM_PARAMETERS:          # Custom parameters for external software
+  mafft: ["--adjustdirection", "--op", "1.53", "--ep", "0.123", "--maxiterate", "1000"]  # Optimized for protein-coding genes with reverse complement detection
+  fasttree: []                    # Additional FastTree parameters: ["-slow"]
+  iqtree: []                      # Additional IQ-TREE parameters: ["-redo"]
+
+# Parallel processing (for large datasets)
+PHYLO_PARALLEL_FAMILIES: false    # Process families in parallel (requires more resources)
+PHYLO_MAX_PARALLEL_JOBS: 4        # Maximum number of families to process simultaneously
 
 # Note: Output paths are dynamically constructed using RESULTS_DIR and LOG_DIR 
 # in the Snakefile helper functions. Directories are created automatically.

@@ -35,7 +35,15 @@ class BoldFamilySplitter:
         self.input_path = Path(input_path)
         self.output_base = Path(output_base)
         self.threshold = threshold
-        self.is_database = input_path.endswith('.db')
+        
+        # Handle directory input - look for files in the directory
+        if self.input_path.is_dir():
+            print(f"Directory provided: {self.input_path}")
+            self.input_path, self.is_database = self._resolve_input_file(self.input_path / "dummy")
+        else:
+            # Resolve specific file input with new priority logic
+            self.input_path, self.is_database = self._resolve_input_file(input_path)
+        
         self.family_stats = {}
         self.taxonomy_cache = {}
         
@@ -44,6 +52,82 @@ class BoldFamilySplitter:
         
         # Update threshold in config
         CONFIG['FAMILY_SIZE_THRESHOLD'] = threshold
+
+    def _resolve_input_file(self, input_path):
+        """
+        Resolve input file with priority: bold.db → any other .db → result_output.tsv → original input
+        Returns tuple of (resolved_path, is_database)
+        """
+        input_path = Path(input_path)
+        input_dir = input_path.parent
+        
+        print(f"Resolving input file from: {input_path}")
+        
+        # Priority 1: Look for bold.db in the same directory
+        bold_db_path = input_dir / "bold.db"
+        if bold_db_path.exists():
+            print(f"Found bold.db, using: {bold_db_path}")
+            return bold_db_path, True
+        
+        # Priority 2: Look for any other .db file in the same directory
+        db_files = list(input_dir.glob("*.db"))
+        if db_files:
+            # Use the first .db file found (excluding bold.db which we already checked)
+            other_db = db_files[0]
+            print(f"Found other database file, using: {other_db}")
+            return other_db, True
+        
+        # Priority 3: Look for result_output.tsv in the same directory
+        result_output_path = input_dir / "result_output.tsv"
+        if result_output_path.exists():
+            print(f"Found result_output.tsv, using: {result_output_path}")
+            return result_output_path, False
+        
+        # Priority 4: If input is explicitly a database and exists, use it
+        if str(input_path).endswith('.db') and input_path.exists():
+            print(f"Using specified database file: {input_path}")
+            return input_path, True
+        
+        # Priority 5: If input is a TSV and exists, use it
+        if (str(input_path).endswith('.tsv') or str(input_path).endswith('.txt')) and input_path.exists():
+            print(f"Using specified TSV file: {input_path}")
+            return input_path, False
+        
+        # Priority 6: Try to detect file type if it exists without clear extension
+        if input_path.exists():
+            # Check if it's actually a database by trying to open it
+            try:
+                with sqlite3.connect(input_path) as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' LIMIT 1")
+                    cursor.fetchone()
+                print(f"Detected as database file: {input_path}")
+                return input_path, True
+            except:
+                print(f"Treating as TSV file: {input_path}")
+                return input_path, False
+        
+        # Priority 7: Look for alternatives based on input base name
+        base_path = input_path.with_suffix('')
+        
+        # Try .db variants
+        for db_name in ['bold.db', f'{base_path.name}.db']:
+            db_path = input_dir / db_name
+            if db_path.exists():
+                print(f"Found alternative database file: {db_path}")
+                return db_path, True
+        
+        # Fall back to TSV variants
+        for ext in ['.tsv', '.txt', '.csv']:
+            tsv_path = base_path.with_suffix(ext)
+            if tsv_path.exists():
+                print(f"Found alternative TSV file: {tsv_path}")
+                return tsv_path, False
+        
+        # If nothing found, return original path (will cause error later)
+        print(f"WARNING: No suitable file found in directory {input_dir}")
+        print(f"Falling back to original input: {input_path}")
+        return input_path, str(input_path).endswith('.db')
 
     def run(self):
         """Main execution method"""
@@ -92,7 +176,7 @@ class BoldFamilySplitter:
                 SELECT 
                     COALESCE(family, '{CONFIG['UNKNOWN_FAMILY']}') as family,
                     COUNT(*) as count
-                FROM records 
+                FROM bold 
                 GROUP BY family
                 ORDER BY count DESC
             """)
@@ -111,7 +195,7 @@ class BoldFamilySplitter:
                         COALESCE("order", '{CONFIG['UNKNOWN_ORDER']}') as order_name,
                         COALESCE(family, '{CONFIG['UNKNOWN_FAMILY']}') as family,
                         subfamily
-                    FROM records 
+                    FROM bold 
                     WHERE COALESCE(family, '{CONFIG['UNKNOWN_FAMILY']}') = ?
                     LIMIT 1
                 """, (family,))
@@ -126,7 +210,7 @@ class BoldFamilySplitter:
                         SELECT 
                             COALESCE(subfamily, '{CONFIG['UNKNOWN_SUBFAMILY']}') as subfamily,
                             COUNT(*) as count
-                        FROM records 
+                        FROM bold 
                         WHERE COALESCE(family, '{CONFIG['UNKNOWN_FAMILY']}') = ?
                         GROUP BY subfamily
                         ORDER BY count DESC
@@ -290,7 +374,7 @@ class BoldFamilySplitter:
         try:
             # Copy schema
             source_cursor = source_conn.cursor()
-            source_cursor.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='records'")
+            source_cursor.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='bold'")
             schema_row = source_cursor.fetchone()
             
             if schema_row:
@@ -298,7 +382,7 @@ class BoldFamilySplitter:
             
             # Copy data
             source_cursor.execute(f"""
-                SELECT * FROM records 
+                SELECT * FROM bold 
                 WHERE COALESCE(family, '{CONFIG['UNKNOWN_FAMILY']}') = ?
             """, (family,))
             
@@ -308,11 +392,11 @@ class BoldFamilySplitter:
             
             if rows:
                 # Get column info to build insert statement
-                source_cursor.execute("PRAGMA table_info(records)")
+                source_cursor.execute("PRAGMA table_info(bold)")
                 columns = [row[1] for row in source_cursor.fetchall()]
                 placeholders = ','.join(['?' for _ in columns])
                 
-                target_cursor.executemany(f"INSERT INTO records VALUES ({placeholders})", rows)
+                target_cursor.executemany(f"INSERT INTO bold VALUES ({placeholders})", rows)
             
             # Create indexes
             self._create_indexes(target_conn)
@@ -330,7 +414,7 @@ class BoldFamilySplitter:
         try:
             # Copy schema
             source_cursor = source_conn.cursor()
-            source_cursor.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='records'")
+            source_cursor.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='bold'")
             schema_row = source_cursor.fetchone()
             
             if schema_row:
@@ -338,7 +422,7 @@ class BoldFamilySplitter:
             
             # Copy data
             source_cursor.execute(f"""
-                SELECT * FROM records 
+                SELECT * FROM bold 
                 WHERE COALESCE(family, '{CONFIG['UNKNOWN_FAMILY']}') = ? 
                 AND COALESCE(subfamily, '{CONFIG['UNKNOWN_SUBFAMILY']}') = ?
             """, (family, subfamily))
@@ -349,11 +433,11 @@ class BoldFamilySplitter:
             
             if rows:
                 # Get column info to build insert statement
-                source_cursor.execute("PRAGMA table_info(records)")
+                source_cursor.execute("PRAGMA table_info(bold)")
                 columns = [row[1] for row in source_cursor.fetchall()]
                 placeholders = ','.join(['?' for _ in columns])
                 
-                target_cursor.executemany(f"INSERT INTO records VALUES ({placeholders})", rows)
+                target_cursor.executemany(f"INSERT INTO bold VALUES ({placeholders})", rows)
             
             # Create indexes
             self._create_indexes(target_conn)
@@ -420,7 +504,7 @@ class BoldFamilySplitter:
         
         # Create table with all columns as TEXT
         columns_sql = ',\n'.join([f'"{header}" TEXT' for header in unique_headers])
-        create_sql = f"CREATE TABLE records (\n{columns_sql}\n)"
+        create_sql = f"CREATE TABLE bold (\n{columns_sql}\n)"
         
         conn.execute(create_sql)
         
@@ -445,7 +529,7 @@ class BoldFamilySplitter:
             
             # Prepare insert statement
             placeholders = ','.join(['?' for _ in mapped_headers])
-            insert_sql = f"INSERT INTO records VALUES ({placeholders})"
+            insert_sql = f"INSERT INTO bold VALUES ({placeholders})"
             
             # Insert data in batches
             batch_size = 10000
@@ -488,7 +572,7 @@ class BoldFamilySplitter:
                     bin_uri,
                     GROUP_CONCAT(DISTINCT COALESCE(subfamily, '{CONFIG['UNKNOWN_SUBFAMILY']}')) as subfamilies,
                     COUNT(DISTINCT COALESCE(subfamily, '{CONFIG['UNKNOWN_SUBFAMILY']}')) as subfamily_count
-                FROM records 
+                FROM bold 
                 WHERE COALESCE(family, '{CONFIG['UNKNOWN_FAMILY']}') = ? 
                     AND bin_uri IS NOT NULL 
                     AND bin_uri != 'None' 
@@ -511,11 +595,11 @@ class BoldFamilySplitter:
     def _create_indexes(self, conn):
         """Create database indexes for performance"""
         indexes = [
-            'CREATE INDEX IF NOT EXISTS idx_family ON records(family)',
-            'CREATE INDEX IF NOT EXISTS idx_genus ON records(genus)',
-            'CREATE INDEX IF NOT EXISTS idx_species ON records(species)',
-            'CREATE INDEX IF NOT EXISTS idx_bin ON records(bin_uri)',
-            'CREATE INDEX IF NOT EXISTS idx_processid ON records(processid)'
+            'CREATE INDEX IF NOT EXISTS idx_family ON bold(family)',
+            'CREATE INDEX IF NOT EXISTS idx_genus ON bold(genus)',
+            'CREATE INDEX IF NOT EXISTS idx_species ON bold(species)',
+            'CREATE INDEX IF NOT EXISTS idx_bin ON bold(bin_uri)',
+            'CREATE INDEX IF NOT EXISTS idx_processid ON bold(processid)'
         ]
         
         for index_sql in indexes:
@@ -584,7 +668,17 @@ def main():
 Examples:
   python bold_family_splitter.py bold.db
   python bold_family_splitter.py result_output.tsv --output my_output --threshold 5000
+  python bold_family_splitter.py "C:\\GitHub\\bold-library-curation\\results\\results_test3"
   python bold_family_splitter.py "C:\\GitHub\\bold-library-curation\\results\\_bags_sub-3\\bold.db"
+  python bold_family_splitter.py data_file  # Will auto-detect .db or .tsv
+
+File Selection Priority:
+  1. bold.db in the same directory (highest priority)
+  2. Any other .db file in the same directory  
+  3. result_output.tsv in the same directory
+  4. The explicitly specified file (if it exists)
+  5. Alternative files with same base name
+  - Database files are preferred for better performance with large datasets
 
 Output Structure:
   output_dir/
@@ -598,7 +692,7 @@ Output Structure:
                   +-- subfamily_shared_BINs.csv
         """)
     
-    parser.add_argument('input', help='Path to input database (.db) or TSV file (.tsv)')
+    parser.add_argument('input', help='Path to input database (.db), TSV file (.tsv), or directory containing data files. When a directory is provided, files are auto-resolved by priority.')
     parser.add_argument('--output', '-o', default='taxonomic_output', 
                        help='Output directory (default: taxonomic_output)')
     parser.add_argument('--threshold', '-t', type=int, default=10000,

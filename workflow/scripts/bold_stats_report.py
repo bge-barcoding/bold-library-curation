@@ -25,9 +25,10 @@ plt.style.use('default')
 sns.set_palette("husl")
 
 class BOLDStatsGenerator:
-    def __init__(self, db_path, log_path=None):
+    def __init__(self, db_path, log_path=None, skip_detailed_taxonomy=False):
         self.db_path = db_path
         self.log_path = log_path
+        self.skip_detailed_taxonomy = skip_detailed_taxonomy
         self.conn = sqlite3.connect(db_path)
         self.stats = {}
         
@@ -232,7 +233,7 @@ class BOLDStatsGenerator:
     def get_curation_categories(self):
         """Get species counts for different curation categories"""
         queries = {
-            'auto_curable': """
+            'auto_curatable': """
                 SELECT COUNT(DISTINCT bold.species) 
                 FROM bold 
                 JOIN bags ON bold.taxonid = bags.taxonid
@@ -323,6 +324,57 @@ class BOLDStatsGenerator:
             print(f"Error getting country representatives stats: {e}")
             self.stats['country_representatives'] = {}
     
+    def get_geographic_distribution(self):
+        """Get geographic distribution of records by country"""
+        # Try different possible country column names
+        country_columns = ['country/ocean', 'country', 'country_ocean']
+        
+        for col in country_columns:
+            try:
+                # Test if column exists
+                test_query = f"SELECT `{col}` FROM bold LIMIT 1"
+                pd.read_sql_query(test_query, self.conn)
+                
+                # If successful, get the distribution
+                query = f"""
+                SELECT 
+                    COALESCE(`{col}`, 'Unknown') as country_name,
+                    COUNT(*) as record_count,
+                    COUNT(DISTINCT species) as species_count
+                FROM bold 
+                WHERE `{col}` IS NOT NULL AND `{col}` != ''
+                GROUP BY `{col}`
+                ORDER BY record_count DESC
+                """
+                
+                df = pd.read_sql_query(query, self.conn)
+                self.stats['geographic_distribution'] = df
+                self.stats['country_column_used'] = col
+                return
+                
+            except Exception:
+                continue
+        
+        # Fallback: try without backticks
+        try:
+            query = """
+            SELECT 
+                COALESCE(country, 'Unknown') as country_name,
+                COUNT(*) as record_count,
+                COUNT(DISTINCT species) as species_count
+            FROM bold 
+            WHERE country IS NOT NULL AND country != ''
+            GROUP BY country
+            ORDER BY record_count DESC
+            """
+            df = pd.read_sql_query(query, self.conn)
+            self.stats['geographic_distribution'] = df
+            self.stats['country_column_used'] = 'country'
+        except Exception as e:
+            print(f"Error getting geographic distribution: {e}")
+            self.stats['geographic_distribution'] = pd.DataFrame()
+            self.stats['country_column_used'] = None
+    
     def generate_all_stats(self):
         """Generate all statistics"""
         print("Extracting records processed...")
@@ -354,6 +406,9 @@ class BOLDStatsGenerator:
         
         print("Getting country representatives stats...")
         self.get_country_representatives_stats()
+        
+        print("Getting geographic distribution...")
+        self.get_geographic_distribution()
         
         print("Statistics extraction complete!")
     
@@ -387,8 +442,17 @@ class BOLDStatsGenerator:
             # Country representatives
             self._create_country_representatives_page(pdf)
             
-            # Taxonomic breakdown
-            self._create_taxonomic_pages(pdf)
+            # Geographic distribution
+            self._create_geographic_distribution_page(pdf)
+            
+            # Taxonomic breakdown (conditional)
+            if not self.skip_detailed_taxonomy:
+                print("Generating detailed taxonomic breakdown pages...")
+                self._create_taxonomic_pages(pdf)
+            else:
+                print("Skipping detailed taxonomic breakdown (--skip-detailed-taxonomy flag used)")
+                # Create basic taxonomic summary instead
+                self._create_basic_taxonomic_summary_page(pdf)
             
             # Additional statistics
             self._create_additional_stats_page(pdf)
@@ -425,7 +489,7 @@ Records without BIN: {self.stats.get('records_without_bin', 0):,}
 
 CURATION CATEGORIES
 
-Auto-curable species: {self.stats.get('auto_curable', 0):,}
+Auto-curatable species: {self.stats.get('auto_curatable', 0):,}
 Needs attention: {self.stats.get('needs_attention', 0):,}
 Manual intervention: {self.stats.get('manual_intervention', 0):,}
 
@@ -609,8 +673,8 @@ Species represented: {country_reps.get('species_represented', 'N/A')}
         """Create curation categories visualization"""
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11, 8.5))
         
-        categories = ['Auto-curable', 'Needs attention', 'Manual intervention']
-        counts = [self.stats['auto_curable'], self.stats['needs_attention'], 
+        categories = ['Auto-curatable', 'Needs attention', 'Manual intervention']
+        counts = [self.stats['auto_curatable'], self.stats['needs_attention'], 
                  self.stats['manual_intervention']]
         
         colors = ['green', 'orange', 'red']
@@ -693,8 +757,114 @@ Species represented: {country_reps.get('species_represented', 'N/A')}
             pdf.savefig(fig, bbox_inches='tight')
             plt.close()
         
-        # Now create family breakdown pages for each order
-        self._create_family_by_order_pages(pdf)
+        # Only create family breakdown pages if detailed taxonomy is enabled
+        if not self.skip_detailed_taxonomy:
+            self._create_family_by_order_pages(pdf)
+    
+    def _create_basic_taxonomic_summary_page(self, pdf):
+        """Create a single page with basic taxonomic summaries (faster alternative)"""
+        fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(11, 8.5))
+        
+        # Summary counts by taxonomic level
+        levels = ['phylum', 'class', 'order', 'family']
+        level_counts = []
+        
+        for level in levels:
+            df = self.stats['taxonomic_breakdown'].get(level, pd.DataFrame())
+            if not df.empty:
+                level_counts.append({
+                    'level': level.title(),
+                    'unique_count': len(df),
+                    'total_records': df['record_count'].sum(),
+                    'total_species': df['species_count'].sum()
+                })
+        
+        if level_counts:
+            counts_df = pd.DataFrame(level_counts)
+            
+            # Bar chart of unique taxa by level
+            bars1 = ax1.bar(counts_df['level'], counts_df['unique_count'])
+            ax1.set_ylabel('Number of Unique Taxa')
+            ax1.set_title('Taxonomic Diversity by Level')
+            ax1.tick_params(axis='x', rotation=45)
+            
+            for bar in bars1:
+                height = bar.get_height()
+                ax1.text(bar.get_x() + bar.get_width()/2., height,
+                        f'{int(height)}', ha='center', va='bottom')
+            
+            # Table with summary statistics
+            ax2.axis('tight')
+            ax2.axis('off')
+            table_data = [[row['level'], row['unique_count'], f"{row['total_records']:,}", 
+                          f"{row['total_species']:,}"] for _, row in counts_df.iterrows()]
+            table = ax2.table(cellText=table_data, 
+                             colLabels=['Level', 'Unique Taxa', 'Total Records', 'Total Species'],
+                             cellLoc='center', loc='center')
+            table.auto_set_font_size(False)
+            table.set_fontsize(10)
+            table.scale(1.2, 1.5)
+            ax2.set_title('Taxonomic Summary Statistics')
+        
+        # Top 10 most diverse orders (by species count)
+        order_df = self.stats['taxonomic_breakdown'].get('order', pd.DataFrame())
+        if not order_df.empty:
+            top_orders = order_df.nlargest(10, 'species_count')
+            
+            bars3 = ax3.barh(range(len(top_orders)), top_orders['species_count'])
+            ax3.set_yticks(range(len(top_orders)))
+            ax3.set_yticklabels(top_orders['order'], fontsize=8)
+            ax3.set_xlabel('Number of Species')
+            ax3.set_title('Top 10 Orders by Species Diversity')
+            ax3.invert_yaxis()
+        else:
+            ax3.text(0.5, 0.5, 'No order data available', ha='center', va='center')
+            ax3.set_title('Top 10 Orders by Species Diversity')
+        
+        # General taxonomic statistics
+        total_orders = len(order_df) if not order_df.empty else 0
+        family_df = self.stats['taxonomic_breakdown'].get('family', pd.DataFrame())
+        total_families = len(family_df) if not family_df.empty else 0
+        
+        # Get top order info safely
+        if not order_df.empty:
+            most_diverse_order = top_orders.iloc[0]['order']
+            top_order_records = top_orders.iloc[0]['record_count']
+        else:
+            most_diverse_order = 'N/A'
+            top_order_records = 'N/A'
+        
+        # Format the record count properly
+        if isinstance(top_order_records, int):
+            records_display = f"{top_order_records:,}"
+        else:
+            records_display = str(top_order_records)
+        
+        stats_text = f"""
+Taxonomic Overview:
+
+• Total Orders: {total_orders:,}
+• Total Families: {total_families:,}
+• Most diverse order: {most_diverse_order}
+• Records in top order: {records_display}
+
+Note: Detailed family-by-order 
+breakdown was skipped for faster 
+processing. Use without 
+--skip-detailed-taxonomy for 
+complete analysis.
+        """
+        
+        ax4.text(0.1, 0.9, stats_text, transform=ax4.transAxes, fontsize=10,
+                verticalalignment='top', fontfamily='monospace')
+        ax4.set_xlim(0, 1)
+        ax4.set_ylim(0, 1)
+        ax4.axis('off')
+        
+        plt.suptitle('Taxonomic Overview (Summary)', fontsize=16, fontweight='bold')
+        plt.tight_layout()
+        pdf.savefig(fig, bbox_inches='tight')
+        plt.close()
     
     def _create_family_by_order_pages(self, pdf):
         """Create family breakdown pages for each order"""
@@ -850,6 +1020,139 @@ Country Representatives Summary:
         pdf.savefig(fig, bbox_inches='tight')
         plt.close()
     
+    def _create_geographic_distribution_page(self, pdf):
+        """Create geographic distribution analysis page"""
+        fig = plt.figure(figsize=(16, 11))
+        
+        # Create a grid layout for multiple plots
+        gs = fig.add_gridspec(3, 3, height_ratios=[2, 2, 1], width_ratios=[2, 2, 1])
+        
+        geo_df = self.stats.get('geographic_distribution', pd.DataFrame())
+        
+        if geo_df.empty:
+            # Create a simple message if no geographic data
+            ax = fig.add_subplot(gs[:, :])
+            ax.text(0.5, 0.5, 'No geographic data available', 
+                   ha='center', va='center', fontsize=16)
+            ax.set_xlim(0, 1)
+            ax.set_ylim(0, 1)
+            ax.axis('off')
+        else:
+            # Top 20 countries by record count
+            ax1 = fig.add_subplot(gs[0, :2])
+            top_countries = geo_df.head(20)
+            
+            bars = ax1.barh(range(len(top_countries)), top_countries['record_count'])
+            ax1.set_yticks(range(len(top_countries)))
+            ax1.set_yticklabels(top_countries['country_name'], fontsize=8)
+            ax1.set_xlabel('Number of Records')
+            ax1.set_title('Top 20 Countries by Record Count')
+            ax1.invert_yaxis()
+            
+            # Add value labels on bars for top 10
+            for i, bar in enumerate(bars[:10]):
+                width = bar.get_width()
+                ax1.text(width, bar.get_y() + bar.get_height()/2., 
+                        f'{int(width):,}', ha='left', va='center', fontsize=8)
+            
+            # Top 15 countries by species diversity
+            ax2 = fig.add_subplot(gs[1, :2])
+            top_species = geo_df.nlargest(15, 'species_count')
+            
+            bars2 = ax2.barh(range(len(top_species)), top_species['species_count'])
+            ax2.set_yticks(range(len(top_species)))
+            ax2.set_yticklabels(top_species['country_name'], fontsize=8)
+            ax2.set_xlabel('Number of Species')
+            ax2.set_title('Top 15 Countries by Species Diversity')
+            ax2.invert_yaxis()
+            
+            # Add value labels on bars for top 10
+            for i, bar in enumerate(bars2[:10]):
+                width = bar.get_width()
+                ax2.text(width, bar.get_y() + bar.get_height()/2., 
+                        f'{int(width):,}', ha='left', va='center', fontsize=8)
+            
+            # Summary statistics
+            ax3 = fig.add_subplot(gs[:2, 2])
+            ax3.axis('off')
+            
+            total_countries = len(geo_df)
+            total_records = geo_df['record_count'].sum()
+            total_species = geo_df['species_count'].sum()
+            avg_records_per_country = total_records / total_countries if total_countries > 0 else 0
+            avg_species_per_country = total_species / total_countries if total_countries > 0 else 0
+            
+            # Get top countries info safely
+            if not top_countries.empty:
+                top_record_country = top_countries.iloc[0]['country_name']
+                top_record_count = f"{top_countries.iloc[0]['record_count']:,}"
+            else:
+                top_record_country = 'N/A'
+                top_record_count = 'N/A'
+                
+            if not top_species.empty:
+                top_species_country = top_species.iloc[0]['country_name']
+                top_species_count = f"{top_species.iloc[0]['species_count']:,}"
+            else:
+                top_species_country = 'N/A'
+                top_species_count = 'N/A'
+            
+            summary_text = f"""
+Geographic Summary:
+
+• Total countries: {total_countries:,}
+• Total records: {total_records:,}
+• Total species: {total_species:,}
+
+• Avg records/country: {avg_records_per_country:.0f}
+• Avg species/country: {avg_species_per_country:.0f}
+
+Top Contributors:
+• Most records: 
+  {top_record_country}
+  ({top_record_count} records)
+
+• Most species: 
+  {top_species_country}
+  ({top_species_count} species)
+
+Data source: {self.stats.get('country_column_used', 'Unknown')} column
+            """
+            
+            ax3.text(0.05, 0.95, summary_text, transform=ax3.transAxes, fontsize=10,
+                    verticalalignment='top', fontfamily='monospace')
+            
+            # Distribution chart (records vs species)
+            ax4 = fig.add_subplot(gs[2, :2])
+            
+            # Scatter plot of records vs species for top 30 countries
+            scatter_data = geo_df.head(30)
+            scatter = ax4.scatter(scatter_data['record_count'], scatter_data['species_count'], 
+                                alpha=0.6, s=50)
+            
+            ax4.set_xlabel('Number of Records')
+            ax4.set_ylabel('Number of Species')
+            ax4.set_title('Records vs Species Diversity (Top 30 Countries)')
+            
+            # Add trend line
+            if len(scatter_data) > 1:
+                z = np.polyfit(scatter_data['record_count'], scatter_data['species_count'], 1)
+                p = np.poly1d(z)
+                ax4.plot(scatter_data['record_count'], p(scatter_data['record_count']), 
+                        "r--", alpha=0.8, linewidth=1)
+            
+            # Annotate a few top countries
+            for i, row in scatter_data.head(5).iterrows():
+                ax4.annotate(row['country_name'], 
+                           (row['record_count'], row['species_count']),
+                           xytext=(5, 5), textcoords='offset points', 
+                           fontsize=8, alpha=0.7)
+        
+        plt.suptitle('Geographic Distribution of Records', fontsize=16, fontweight='bold')
+        plt.tight_layout()
+        pdf.savefig(fig, bbox_inches='tight')
+        plt.close()
+    
     def _create_additional_stats_page(self, pdf):
         """Create additional statistics page"""
         fig, ax = plt.subplots(figsize=(8.5, 11))
@@ -951,6 +1254,8 @@ def main():
     parser.add_argument('-l', '--log', help='Path to prescoring_filter.log file (optional)')
     parser.add_argument('-o', '--output', default='bold_stats_report.pdf', help='Output PDF file path')
     parser.add_argument('--info', action='store_true', help='Show database table information and exit')
+    parser.add_argument('--skip-detailed-taxonomy', action='store_true', 
+                       help='Skip detailed family-by-order taxonomy pages (faster execution)')
     
     args = parser.parse_args()
     
@@ -959,12 +1264,14 @@ def main():
         return 1
     
     try:
-        with BOLDStatsGenerator(args.database, args.log) as generator:
+        with BOLDStatsGenerator(args.database, args.log, args.skip_detailed_taxonomy) as generator:
             if args.info:
                 generator.get_table_info()
                 return 0
             
             print("Generating BOLD database statistics report...")
+            if args.skip_detailed_taxonomy:
+                print("Note: Detailed taxonomy breakdown will be skipped for faster execution")
             generator.generate_all_stats()
             
             print(f"Creating PDF report: {args.output}")

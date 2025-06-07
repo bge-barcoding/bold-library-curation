@@ -13,6 +13,6 @@ source activate bold-curation
 # --unlock
 # --forcerun specify as "--forcerun rule" (run rule -> completion) or "rule --forcerun rule" (= run the rule then stop)
 
-snakemake -s bold-ranker.smk -p -c 16
+snakemake -s bold-ranker-array.smk -p -c 16
 
 echo Complete!
