@@ -145,7 +145,7 @@ PHYLO_LOG_LEVEL: "INFO"           # Logging level: "DEBUG", "INFO", "WARNING", "
 
 # Advanced options
 PHYLO_CUSTOM_PARAMETERS:          # Custom parameters for external software
-  mafft: ["--adjustdirection", "--op", "1.53", "--ep", "0.123", "--maxiterate", "1000"]  # Optimized for protein-coding genes with reverse complement detection
+  mafft: ["--adjustdirection", "--op", "10.0", "--ep", "1.0", "--maxiterate", "1000"]  # High gap penalties for COX1 - discourages spurious gaps
   fasttree: []                    # Additional FastTree parameters: ["-slow"]
   iqtree: []                      # Additional IQ-TREE parameters: ["-redo"]
 

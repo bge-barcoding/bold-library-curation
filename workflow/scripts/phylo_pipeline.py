@@ -233,8 +233,8 @@ class PhylogeneticPipeline:
             cmd = [
                 "mafft",
                 "--adjustdirection",  # Detect and correct reverse complement sequences
-                "--op", "1.53",       # Lower gap opening penalty for protein-coding genes
-                "--ep", "0.123",      # Lower gap extension penalty
+                "--op", "10.0",       # Much higher gap opening penalty to discourage gaps
+                "--ep", "1.0",        # Higher gap extension penalty
                 "--maxiterate", "1000",  # Allow sufficient refinement iterations
                 "--localpair",        # Use L-INS-i for higher accuracy
                 "--quiet",            # Reduce output
