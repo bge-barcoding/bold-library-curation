@@ -450,11 +450,11 @@ class PhylogeneticPipeline:
         
         # Define color schemes
         colors = {
-            'multi_species_bin': '#FF6B6B',    # Red for BIN sharing
-            'multi_bin_species': '#4ECDC4',    # Teal for BIN splitting  
-            'both_conflicts': '#FFE66D',       # Yellow for both issues
-            'normal': '#95E1D3',               # Light green for normal
-            'outgroup': '#FFA07A'              # Light salmon for outgroups
+            'multi_species_bin': '#D32F2F',    # Dark red for BIN sharing
+            'multi_bin_species': '#1976D2',    # Blue for BIN splitting  
+            'both_conflicts': '#F57C00',       # Orange for both issues
+            'normal': '#388E3C',               # Dark green for normal
+            'outgroup': '#7B1FA2'              # Purple for outgroups
         }
         
         for leaf in tree:
