@@ -663,7 +663,8 @@ rule BAGS:
         bags_optimized=f"{get_results_dir()}/bags_optimized.ok"
     params:
         log_level=config['LOG_LEVEL'],
-        libs=config["LIBS"]
+        libs=config["LIBS"],
+        log_dir=get_log_dir()
     output:
         tsv=f"{get_results_dir()}/assessed_BAGS.tsv"
     log: f"{get_log_dir()}/assess_BAGS.log"
@@ -686,14 +687,14 @@ rule BAGS:
             --db {input.db} \
             --progress 50 \
             > {output.tsv} \
-            2> >(tee logs/bags_full_debug.log | grep "PROGRESS:" >> {log}) || \
+            2> >(tee {params.log_dir}/bags_full_debug.log | grep "PROGRESS:" >> {log}) || \
         # Fallback for systems without process substitution
         (perl -I{params.libs} workflow/scripts/assess_taxa_simplified.pl \
             --db {input.db} \
             --progress 50 \
-            > {output.tsv} 2> logs/bags_all_output.log && \
+            > {output.tsv} 2> {params.log_dir}/bags_all_output.log && \
          echo "Extracting progress information..." >> {log} && \
-         grep "PROGRESS:" logs/bags_all_output.log >> {log} || true)
+         grep "PROGRESS:" {params.log_dir}/bags_all_output.log >> {log} || true)
         
         echo "" >> {log}
         echo "=== BAGS Analysis Completed ===" >> {log}
@@ -921,124 +922,211 @@ OTU
         touch {output}
         """
 
-# PHYLOGENETIC ANALYSIS
-# =====================
+# PHYLOGENETIC ANALYSIS - PARALLEL VERSION
+# ========================================
 
-rule run_phylogenetic_analysis:
-    """Generate phylogenetic trees and PDFs using enhanced HPC-optimized pipeline"""
+rule prepare_phylo_batches:
+    """Prepare family batches for parallel phylogenetic analysis"""
     input:
         db=get_db_file(),
         otus_ok=f"{get_results_dir()}/otus_imported.ok"
     output:
-        marker=f"{get_results_dir()}/phylogenetic_analysis_completed.ok" if config.get("PHYLO_ENABLED", False) else []
+        batch_dir=directory(f"{get_results_dir()}/phylo_batches"),
+        summary=f"{get_results_dir()}/phylo_batches/phylo_batch_summary.json"
+    params:
+        phylo_enabled=config.get("PHYLO_ENABLED", False),
+        num_jobs=config.get("PHYLO_NUM_JOBS", 50),
+        families_per_job=config.get("PHYLO_FAMILIES_PER_JOB", None),
+        min_otus=config.get("PHYLO_MIN_OTUS", 3),
+        export_kingdoms=config.get("PHYLO_KINGDOMS", ["all"]),
+        kingdoms_arg=lambda wildcards: f"--export-kingdoms {' '.join(config.get('PHYLO_KINGDOMS', ['all']))}"
+    conda: "envs/phylogenetic_analysis.yaml"
+    log: f"{get_log_dir()}/prepare_phylo_batches.log"
+    shell:
+        """
+        if [ "{params.phylo_enabled}" = "True" ]; then
+            echo "=== Preparing Phylogenetic Analysis Batches ===" > {log}
+            echo "Start time: $(date)" >> {log}
+            echo "Database: {input.db}" >> {log}
+            echo "Number of jobs: {params.num_jobs}" >> {log}
+            echo "Minimum OTUs: {params.min_otus}" >> {log}
+            echo "Export kingdoms: {params.export_kingdoms}" >> {log}
+            echo "" >> {log}
+            
+            # Create batch directory
+            mkdir -p {output.batch_dir}
+            
+            # Prepare batches
+            python workflow/scripts/prepare_phylo_batches.py \
+                {input.db} \
+                --output-dir {output.batch_dir} \
+                --num-jobs {params.num_jobs} \
+                --min-otus {params.min_otus} \
+                {params.kingdoms_arg} \
+                2>> {log}
+            
+            echo "Batch preparation completed at $(date)" >> {log}
+        else
+            echo "Phylogenetic analysis disabled - creating empty batch directory" > {log}
+            mkdir -p {output.batch_dir}
+            echo '{{"total_batches": 0, "total_families": 0, "phylo_disabled": true}}' > {output.summary}
+        fi
+        """
+
+rule run_phylogenetic_analysis_parallel:
+    """Run phylogenetic analysis in parallel using SLURM job arrays"""
+    input:
+        batch_dir=f"{get_results_dir()}/phylo_batches",
+        summary=f"{get_results_dir()}/phylo_batches/phylo_batch_summary.json",
+        db=get_db_file()
+    output:
+        marker=f"{get_results_dir()}/phylogenetic_analysis_parallel_completed.ok",
+        custom_params=f"{get_results_dir()}/phylo_custom_parameters.json"
     params:
         phylo_enabled=config.get("PHYLO_ENABLED", False),
         output_dir=f"{get_results_dir()}/{config.get('PHYLO_OUTPUT_DIR', 'phylogenies')}",
         min_otus=config.get("PHYLO_MIN_OTUS", 3),
-        max_families=config.get("PHYLO_MAX_FAMILIES", 0),
-        selection_strategy=config.get("PHYLO_SELECTION_STRATEGY", "best_quality"),
-        num_outgroups=config.get("PHYLO_NUM_OUTGROUPS", 3),
         alignment_method=config.get("PHYLO_ALIGNMENT_METHOD", "mafft"),
-        tree_method=config.get("PHYLO_TREE_METHOD", "iqtree"),
+        tree_method=config.get("PHYLO_TREE_METHOD", "fasttree"),
         bootstrap=config.get("PHYLO_BOOTSTRAP", 1000),
-        log_level=config.get("PHYLO_LOG_LEVEL", "INFO"),
-        generate_pdfs=True,  # Always enable PDF generation with BIN conflict analysis
-        bin_conflict_analysis=True,
-        cleanup_intermediates=True,
-        max_families_arg=lambda wildcards: f"--max-families {config.get('PHYLO_MAX_FAMILIES', 0)}" if config.get('PHYLO_MAX_FAMILIES', 0) > 0 else ""
-    threads: config.get("PHYLO_THREADS", 8)
-    resources:
-        mem_mb=lambda wildcards: int(config.get("PHYLO_MEMORY", "16G").replace("G", "")) * 1000,  # Increased default memory
-        runtime=lambda wildcards: int(config.get("PHYLO_MAX_RUNTIME", "04:00:00").split(":")[0]) * 60  # Increased default runtime
-    conda: "envs/phylogenetic_analysis.yaml"
-    log: f"{get_log_dir()}/phylogenetic_analysis.log"
+        num_outgroups=config.get("PHYLO_NUM_OUTGROUPS", 3),
+        generate_pdfs=config.get("PHYLO_GENERATE_PDFS", True),
+        job_memory=config.get("PHYLO_JOB_MEMORY", "32G"),
+        job_time=config.get("PHYLO_JOB_TIME", "24:00:00"),
+        max_concurrent=config.get("PHYLO_MAX_CONCURRENT", 10),
+        partition=config.get("PHYLO_PARTITION", "week"),
+        custom_parameters=config.get("PHYLO_CUSTOM_PARAMETERS", {}),
+        log_dir=get_log_dir()
+    log: f"{get_log_dir()}/phylogenetic_analysis_parallel.log"
     shell:
         """
         if [ "{params.phylo_enabled}" = "True" ]; then
-            echo "=== Starting Enhanced Phylogenetic Analysis ===" > {log}
+            echo "=== Starting Parallel Phylogenetic Analysis ===" > {log}
             echo "Start time: $(date)" >> {log}
             echo "Database: {input.db}" >> {log}
+            echo "Batch directory: {input.batch_dir}" >> {log}
             echo "Output directory: {params.output_dir}" >> {log}
-            echo "Minimum OTUs per family: {params.min_otus}" >> {log}
-            echo "Maximum families to process: {params.max_families}" >> {log}
-            echo "Generate PDFs: {params.generate_pdfs}" >> {log}
-            echo "BIN conflict analysis: {params.bin_conflict_analysis}" >> {log}
-            echo "Selection strategy: {params.selection_strategy}" >> {log}
-            echo "Number of outgroups: {params.num_outgroups}" >> {log}
             echo "Alignment method: {params.alignment_method}" >> {log}
             echo "Tree method: {params.tree_method}" >> {log}
-            echo "Bootstrap replicates: {params.bootstrap}" >> {log}
-            echo "Threads: {threads}" >> {log}
+            echo "Generate PDFs: {params.generate_pdfs}" >> {log}
             echo "" >> {log}
             
-            # Create output directory
+            # Create custom parameters file
+            echo "Creating custom parameters file..." >> {log}
+            python3 -c "
+import json
+import sys
+
+# Custom parameters from Snakemake config
+custom_params = {params.custom_parameters}
+
+# Write to JSON file
+with open('{output.custom_params}', 'w') as f:
+    json.dump(custom_params, f, indent=2)
+
+print('Custom parameters saved to {output.custom_params}')
+if custom_params:
+    for tool, tool_params in custom_params.items():
+        if tool_params:  # Only show non-empty parameter lists
+            print(f'  {{tool}}: {{tool_params}}')
+else:
+    print('  Using optimized defaults (no custom parameters)')
+" 2>> {log}
+            
+            # Create output and log directories
             mkdir -p {params.output_dir}
+            mkdir -p {params.log_dir}/phylo_checkpoints
             
-            # Set environment variables for headless operation
-            export QT_QPA_PLATFORM=offscreen
-            export MPLBACKEND=Agg
-            export DISPLAY=:99
+            # Check if batches exist
+            BATCH_SUMMARY=$(cat {input.summary})
+            TOTAL_BATCHES=$(echo "$BATCH_SUMMARY" | python3 -c "import sys, json; data=json.load(sys.stdin); print(data.get('total_batches', 0))")
             
-            # Check if xvfb is available and start virtual display if needed
-            if command -v xvfb-run >/dev/null 2>&1; then
-                echo "Using xvfb-run for virtual display" >> {log}
-                PYTHON_CMD="xvfb-run -a python"
-            else
-                echo "xvfb-run not available, using environment variables only" >> {log}
-                PYTHON_CMD="python"
+            if [ "$TOTAL_BATCHES" -eq 0 ]; then
+                echo "No batches to process - phylogenetic analysis skipped" >> {log}
+                touch {output.marker}
+                exit 0
             fi
             
-            # Run enhanced phylogenetic analysis with PDF generation
-            $PYTHON_CMD workflow/scripts/phylo_pipeline.py \
-                --database {input.db} \
-                --output-dir {params.output_dir} \
-                --min-otus {params.min_otus} \
-                {params.max_families_arg} \
-                --selection-strategy {params.selection_strategy} \
-                --num-outgroups {params.num_outgroups} \
-                --alignment-method {params.alignment_method} \
-                --tree-method {params.tree_method} \
-                --bootstrap {params.bootstrap} \
-                --threads {threads} \
-                --log-level {params.log_level} \
-                --generate-pdfs \
-                --bin-conflict-analysis \
-                --cleanup-intermediates \
-                2>> {log}
+            echo "Processing $TOTAL_BATCHES batches..." >> {log}
             
-            if [ $? -eq 0 ]; then
-                echo "Enhanced phylogenetic analysis completed successfully" >> {log}
-                echo "End time: $(date)" >> {log}
-                
-                # Report generated outputs
-                TOTAL_FAMILIES=$(find {params.output_dir} -type d -mindepth 1 -maxdepth 1 | wc -l)
-                PDF_COUNT=$(find {params.output_dir} -name "*_tree.pdf" | wc -l)
-                TREE_COUNT=$(find {params.output_dir} -name "*.treefile" | wc -l)
-                
-                echo "Generated outputs:" >> {log}
-                echo "  Total family directories: $TOTAL_FAMILIES" >> {log}
-                echo "  PDF visualizations: $PDF_COUNT" >> {log}
-                echo "  Tree files: $TREE_COUNT" >> {log}
-                
-                touch {output.marker}
-            else
-                echo "ERROR: Enhanced phylogenetic analysis failed" >> {log}
+            # Determine array range
+            ARRAY_RANGE="1-$TOTAL_BATCHES%{params.max_concurrent}"
+            echo "SLURM array range: $ARRAY_RANGE" >> {log}
+            
+            # Submit SLURM job array
+            echo "Submitting SLURM job array..." >> {log}
+            
+            JOB_ID=$(sbatch \
+                --array=$ARRAY_RANGE \
+                --job-name=phylo_parallel \
+                --output={params.log_dir}/phylo_%A_%a.out \
+                --error={params.log_dir}/phylo_%A_%a.err \
+                --time={params.job_time} \
+                --mem={params.job_memory} \
+                --cpus-per-task=8 \
+                --partition={params.partition} \
+                workflow/scripts/phylo_array_job.sh \
+                {input.db} \
+                {input.batch_dir} \
+                {params.output_dir} \
+                {params.min_otus} \
+                {params.alignment_method} \
+                {params.tree_method} \
+                {params.bootstrap} \
+                {params.num_outgroups} \
+                {params.generate_pdfs} \
+                {output.custom_params} \
+                {params.log_dir} | awk '{{print $4}}')
+            
+            if [ -z "$JOB_ID" ]; then
+                echo "ERROR: Failed to submit SLURM job array" >> {log}
                 exit 1
             fi
+            
+            echo "Submitted job array with ID: $JOB_ID" >> {log}
+            
+            # Wait for job completion
+            echo "Waiting for job completion..." >> {log}
+            
+            while squeue -j $JOB_ID -h >/dev/null 2>&1; do
+                RUNNING=$(squeue -j $JOB_ID -h | wc -l)
+                echo "$(date): $RUNNING tasks still running..." >> {log}
+                sleep 60  # Check every minute
+            done
+            
+            echo "Job array completed at $(date)" >> {log}
+            
+            # Wait a bit for file system to catch up
+            sleep 30
+            
+            # Consolidate results
+            echo "Consolidating results..." >> {log}
+            
+            python workflow/scripts/consolidate_phylo_results.py \
+                {input.batch_dir} \
+                {params.output_dir} \
+                --output-file {params.output_dir}/phylogenetic_analysis_summary.json \
+                --failed-families-file {params.output_dir}/failed_families.txt \
+                2>> {log}
+            
+            echo "Phylogenetic analysis completed at $(date)" >> {log}
+            touch {output.marker}
         else
-            echo "Phylogenetic analysis disabled in configuration" > {log}
-            echo "Skipping phylogenetic analysis step" >> {log}
-            # Create empty marker file when disabled
+            echo "Phylogenetic analysis disabled" > {log}
+            echo '{{}}' > {output.custom_params}  # Create empty JSON file
             touch {output.marker}
         fi
         """
+
+# RANKING ETC
+# ===========
 
 rule create_ranks_schema:
     input:
         db=get_db_file(),
         otus_ok=f"{get_results_dir()}/otus_imported.ok",
         concatenated_ok=f"{get_results_dir()}/concatenated_imported.ok",
-        phylo_ok=f"{get_results_dir()}/phylogenetic_analysis_completed.ok" if config.get("PHYLO_ENABLED", False) else []
+        phylo_ok=f"{get_results_dir()}/phylogenetic_analysis_parallel_completed.ok" if config.get("PHYLO_ENABLED", False) else []
     output:
         f"{get_results_dir()}/schema_with_ranks_applied.ok"
     conda: "envs/sqlite.yaml"
@@ -1427,7 +1515,7 @@ rule merge_reports_to_families:
     """Merge phylogenies and other reports into family subdirectories"""
     input:
         families_split=f"{get_results_dir()}/families_split.ok",
-        phylo_done=f"{get_results_dir()}/phylogenetic_analysis_completed.ok" if config.get("PHYLO_ENABLED", False) else []
+        phylo_done=f"{get_results_dir()}/phylogenetic_analysis_parallel_completed.ok" if config.get("PHYLO_ENABLED", False) else []
     output:
         marker=f"{get_results_dir()}/reports_merged_to_families.ok"
     params:

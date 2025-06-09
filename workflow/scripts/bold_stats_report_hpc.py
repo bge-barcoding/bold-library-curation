@@ -644,12 +644,39 @@ class HPCBOLDStatsGenerator:
             raise
     
     def _create_title_page(self, pdf):
-        """Create title page with system information"""
+        """Create title page with system information and logos"""
         fig = plt.figure(figsize=(8.5, 11))
         
         mode_text = "Fast Mode (Sampled)" if self.fast_mode else "Full Analysis"
         sample_text = f"Sample size: {self.sample_size:,}" if self.fast_mode else ""
         
+        # Add logos
+        try:
+            # Get the script directory and construct relative paths to logos
+            script_dir = Path(__file__).parent
+            doc_dir = script_dir.parent.parent / "doc"
+            
+            ibol_logo_path = doc_dir / "IBOL_LOGO_TRANSPARENT.png"
+            bge_logo_path = doc_dir / "Logo BGE.png"
+            
+            # Load and display IBOL logo (left side)
+            if ibol_logo_path.exists():
+                ibol_img = Image.open(ibol_logo_path)
+                ax_ibol = fig.add_axes([0.1, 0.8, 0.25, 0.15])  # [left, bottom, width, height]
+                ax_ibol.imshow(ibol_img)
+                ax_ibol.axis('off')
+            
+            # Load and display BGE logo (right side)
+            if bge_logo_path.exists():
+                bge_img = Image.open(bge_logo_path)
+                ax_bge = fig.add_axes([0.65, 0.8, 0.25, 0.15])  # [left, bottom, width, height]
+                ax_bge.imshow(bge_img)
+                ax_bge.axis('off')
+                
+        except Exception as e:
+            print(f"Warning: Could not load logos: {e}")
+        
+        # Title and information
         fig.text(0.5, 0.7, 'BOLD Database Statistics Report', 
                 ha='center', va='center', fontsize=24, fontweight='bold')
         fig.text(0.5, 0.6, f'Database: {Path(self.db_path).name}', 
@@ -661,10 +688,6 @@ class HPCBOLDStatsGenerator:
                     ha='center', va='center', fontsize=12)
         fig.text(0.5, 0.45, f'Generated: {pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S")}', 
                 ha='center', va='center', fontsize=12)
-        fig.text(0.5, 0.4, f'Processing time: {(time.time() - self.start_time)/60:.1f} minutes', 
-                ha='center', va='center', fontsize=10)
-        fig.text(0.5, 0.35, f'Peak memory: {self.memory_monitor.peak_memory:.1f} MB', 
-                ha='center', va='center', fontsize=10)
         
         plt.axis('off')
         pdf.savefig(fig, bbox_inches='tight')
@@ -996,8 +1019,8 @@ Country Representatives Summary:
         """Create geographic distribution analysis page"""
         fig = plt.figure(figsize=(16, 11))
         
-        # Create a grid layout for multiple plots
-        gs = fig.add_gridspec(3, 3, height_ratios=[2, 2, 1], width_ratios=[2, 2, 1])
+        # Create a grid layout for two main plots and summary
+        gs = fig.add_gridspec(2, 3, height_ratios=[1, 1], width_ratios=[2, 2, 1])
         
         geo_df = self.stats.get('geographic_distribution', pd.DataFrame())
         
@@ -1027,15 +1050,15 @@ Country Representatives Summary:
                 ax1.text(width, bar.get_y() + bar.get_height()/2., 
                         f'{int(width):,}', ha='left', va='center', fontsize=8)
             
-            # Top 15 countries by species diversity
+            # Top 20 countries by species diversity
             ax2 = fig.add_subplot(gs[1, :2])
-            top_species = geo_df.nlargest(15, 'species_count')
+            top_species = geo_df.nlargest(20, 'species_count')
             
             bars2 = ax2.barh(range(len(top_species)), top_species['species_count'])
             ax2.set_yticks(range(len(top_species)))
             ax2.set_yticklabels(top_species['country_name'], fontsize=8)
             ax2.set_xlabel('Number of Species')
-            ax2.set_title('Top 15 Countries by Species Diversity')
+            ax2.set_title('Top 20 Countries by Species Diversity')
             ax2.invert_yaxis()
             
             # Add value labels on bars for top 10
@@ -1045,7 +1068,7 @@ Country Representatives Summary:
                         f'{int(width):,}', ha='left', va='center', fontsize=8)
             
             # Summary statistics
-            ax3 = fig.add_subplot(gs[:2, 2])
+            ax3 = fig.add_subplot(gs[:, 2])
             ax3.axis('off')
             
             total_countries = len(geo_df)
@@ -1093,32 +1116,6 @@ Data source: {self.stats.get('country_column_used', 'Unknown')} column
             
             ax3.text(0.05, 0.95, summary_text, transform=ax3.transAxes, fontsize=10,
                     verticalalignment='top', fontfamily='monospace')
-            
-            # Distribution chart (records vs species)
-            ax4 = fig.add_subplot(gs[2, :2])
-            
-            # Scatter plot of records vs species for top 30 countries
-            scatter_data = geo_df.head(30)
-            scatter = ax4.scatter(scatter_data['record_count'], scatter_data['species_count'], 
-                                alpha=0.6, s=50)
-            
-            ax4.set_xlabel('Number of Records')
-            ax4.set_ylabel('Number of Species')
-            ax4.set_title('Records vs Species Diversity (Top 30 Countries)')
-            
-            # Add trend line
-            if len(scatter_data) > 1:
-                z = np.polyfit(scatter_data['record_count'], scatter_data['species_count'], 1)
-                p = np.poly1d(z)
-                ax4.plot(scatter_data['record_count'], p(scatter_data['record_count']), 
-                        "r--", alpha=0.8, linewidth=1)
-            
-            # Annotate a few top countries
-            for i, row in scatter_data.head(5).iterrows():
-                ax4.annotate(row['country_name'], 
-                           (row['record_count'], row['species_count']),
-                           xytext=(5, 5), textcoords='offset points', 
-                           fontsize=8, alpha=0.7)
         
         plt.suptitle('Geographic Distribution of Records', fontsize=16, fontweight='bold')
         plt.tight_layout()
