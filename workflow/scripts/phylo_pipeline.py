@@ -78,21 +78,17 @@ class PhylogeneticPipeline:
             print("Warning: ReportLab not available. Curation checklists will be skipped.")
         
         # Import ETE3 only if PDF generation is requested
+        print(f"DEBUG: PDF generation requested: {self.generate_pdfs}")
         if self.generate_pdfs:
+            print("DEBUG: Starting ETE3 initialization...")
             try:
                 # Set multiple environment variables for headless operation
                 import os
-                print(f"DEBUG: Setting up headless environment for ETE3...")
-                print(f"DEBUG: Current DISPLAY: {os.environ.get('DISPLAY', 'Not set')}")
-                print(f"DEBUG: Current QT_QPA_PLATFORM: {os.environ.get('QT_QPA_PLATFORM', 'Not set')}")
-                
+                print("DEBUG: Setting environment variables...")
                 os.environ['QT_QPA_PLATFORM'] = 'offscreen'
                 os.environ['DISPLAY'] = ':99'  # Virtual display
                 os.environ['MPLBACKEND'] = 'Agg'  # Force matplotlib non-GUI backend
-                
-                print(f"DEBUG: After setup - DISPLAY: {os.environ.get('DISPLAY')}")
-                print(f"DEBUG: After setup - QT_QPA_PLATFORM: {os.environ.get('QT_QPA_PLATFORM')}")
-                print(f"DEBUG: After setup - MPLBACKEND: {os.environ.get('MPLBACKEND')}")
+                print("DEBUG: Environment variables set")
                 
                 # Import matplotlib first with headless backend
                 print("DEBUG: Importing matplotlib...")
@@ -100,48 +96,34 @@ class PhylogeneticPipeline:
                 matplotlib.use('Agg')
                 print("DEBUG: Matplotlib imported successfully")
                 
-                # Test ETE3 imports step by step
-                print("DEBUG: Importing ete3 components...")
-                try:
-                    from ete3 import Tree
-                    print("DEBUG: ete3.Tree imported successfully")
-                except Exception as tree_error:
-                    print(f"DEBUG: Failed to import ete3.Tree: {tree_error}")
-                    raise tree_error
-                
-                try:
-                    from ete3 import TreeStyle
-                    print("DEBUG: ete3.TreeStyle imported successfully")
-                except Exception as style_error:
-                    print(f"DEBUG: Failed to import ete3.TreeStyle: {style_error}")
-                    raise style_error
-                
-                try:
-                    from ete3 import TextFace, CircleFace
-                    print("DEBUG: ete3.TextFace and CircleFace imported successfully")
-                except Exception as face_error:
-                    print(f"DEBUG: Failed to import ete3 faces: {face_error}")
-                    raise face_error
+                print("DEBUG: Importing ETE3 components...")
+                from ete3 import Tree, TreeStyle, TextFace, CircleFace
+                print("DEBUG: ETE3 imports successful")
                 
                 self.Tree = Tree
                 self.TreeStyle = TreeStyle
                 self.TextFace = TextFace
                 self.CircleFace = CircleFace
-                print("✓ ETE3 loaded with headless backend successfully")
-                
+                print("✓ ETE3 loaded with headless backend")
             except ImportError as import_error:
-                print(f"ERROR: ETE3 ImportError - {import_error}")
-                print(f"ERROR: This usually means ETE3 is not installed in the conda environment")
-                print(f"ERROR: Install with: conda install -c etetoolkit ete3")
+                print(f"WARNING: ETE3 not available ({import_error}). PDF generation disabled.")
                 self.generate_pdfs = False
             except Exception as e:
-                print(f"ERROR: ETE3 setup failed with exception: {type(e).__name__}: {e}")
-                import traceback
-                print(f"ERROR: Full traceback:")
-                traceback.print_exc()
-                print(f"ERROR: This might be due to missing Qt/X11 libraries or display issues")
-                print(f"ERROR: Check if these packages are installed: qt-main, xorg-libx11, xorg-libxext")
-                self.generate_pdfs = False
+                print(f"WARNING: ETE3 backend issue ({type(e).__name__}: {e}). Continuing with PDF generation...")
+                try:
+                    # Try a simpler import without full initialization
+                    print("DEBUG: Attempting fallback ETE3 import...")
+                    from ete3 import Tree, TreeStyle, TextFace, CircleFace
+                    self.Tree = Tree
+                    self.TreeStyle = TreeStyle
+                    self.TextFace = TextFace
+                    self.CircleFace = CircleFace
+                    print("✓ ETE3 loaded with basic backend (warnings ignored)")
+                except Exception as fallback_error:
+                    print(f"WARNING: ETE3 fallback failed ({fallback_error}). PDF generation disabled.")
+                    self.generate_pdfs = False
+        
+        print(f"DEBUG: Final PDF generation status: {self.generate_pdfs}")
         
         # Performance settings
         self.cleanup_intermediates = True
@@ -1201,8 +1183,7 @@ class PhylogeneticPipeline:
                         if hasattr(node, 'grade_key') and 'C_non_monophyletic' in node.grade_key:
                             grade_text += " ⚠"  # Warning symbol for non-monophyletic
                         
-                        grade_face = self.TextFace(f" {grade_text}", fsize=8, fgcolor="black", 
-                                                 bgcolor=node.bgcolor)
+                        grade_face = self.TextFace(f" {grade_text}", fsize=8, fgcolor="black")
                         node.add_face(grade_face, column=3, position="branch-right")
             
             ts.layout_fn = layout

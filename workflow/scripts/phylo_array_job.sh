@@ -223,7 +223,7 @@ if [[ -n "${CUSTOM_PARAMS_FILE}" && -f "${CUSTOM_PARAMS_FILE}" ]]; then
 fi
 
 # Add PDF generation if requested
-if [[ "${GENERATE_PDFS}" == "true" ]]; then
+if [[ "${GENERATE_PDFS}" == "true" ]] || [[ "${GENERATE_PDFS}" == "True" ]]; then
     PHYLO_ARGS+=("--generate-pdfs")
 fi
 
