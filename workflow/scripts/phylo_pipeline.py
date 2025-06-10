@@ -575,7 +575,7 @@ class PhylogeneticPipeline:
             
             # Title
             family_name = curation_data['family']
-            title = f"PDF CHECKLIST FOR CURATION - FAMILY {family_name.upper()}"
+            title = f"CHECKLIST FOR CURATION - FAMILY {family_name.upper()}"
             story.append(Paragraph(title, title_style))
             
             # Process each genus
@@ -614,14 +614,14 @@ class PhylogeneticPipeline:
         story.append(Spacer(1, 6))
         
         # Create table data
-        table_data = [['Species', 'BINs', 'Curated (tick)']]
+        table_data = [['Species', 'BINs', 'Curated']]
         
         for species_data in species_list:
             bins_text = '; '.join(species_data['bins'])
             table_data.append([
                 species_data['species'],
                 bins_text,
-                '☐'  # Empty checkbox
+                '[ ]'  # Empty checkbox
             ])
         
         # Create and style table
@@ -654,7 +654,7 @@ class PhylogeneticPipeline:
         story.append(Spacer(1, 6))
         
         # Create table data with each BIN on its own row
-        table_data = [['Species', 'BIN', 'Curated (tick)']]
+        table_data = [['Species', 'BIN', 'Curated']]
         
         for species_data in species_list:
             species_name = species_data['species']
@@ -664,11 +664,11 @@ class PhylogeneticPipeline:
                 if i == 0:
                     # First row includes species name and checkbox
                     species_cell = species_name
-                    checkbox_cell = '☐'
+                    checkbox_cell = '[ ]'
                 else:
-                    # Subsequent rows have empty species name and checkbox
+                    # Subsequent rows have empty species name but include checkbox
                     species_cell = ''
-                    checkbox_cell = ''
+                    checkbox_cell = '[ ]'
                 
                 table_data.append([
                     species_cell,
@@ -707,7 +707,7 @@ class PhylogeneticPipeline:
         story.append(Spacer(1, 6))
         
         # Create table data with species-centric view
-        table_data = [['Species', 'BIN URI', 'Sharing Species', 'Curated (tick)']]
+        table_data = [['Species', 'BIN URI', 'Sharing Species', 'Curated']]
         
         for species_data in species_list:
             species_name = species_data['species']
@@ -717,11 +717,11 @@ class PhylogeneticPipeline:
                 if i == 0:
                     # First row includes species name
                     species_cell = species_name
-                    checkbox_cell = '☐'
+                    checkbox_cell = '[ ]'
                 else:
-                    # Subsequent rows have empty species name
+                    # Subsequent rows have empty species name, but include checkbox
                     species_cell = ''
-                    checkbox_cell = ''
+                    checkbox_cell = '[ ]'
                 
                 bin_uri = bin_info['bin_uri']
                 sharing_species = bin_info['sharing_species']
@@ -768,13 +768,13 @@ class PhylogeneticPipeline:
         story.append(Spacer(1, 6))
         
         # Create table data
-        table_data = [['Species', 'Status', 'Curated (tick)']]
+        table_data = [['Species', 'Status', 'Curated']]
         
         for species_data in species_list:
             table_data.append([
                 species_data['species'],
                 'No valid BINs',
-                '☐'  # Empty checkbox
+                '[ ]'  # Empty checkbox
             ])
         
         # Create and style table
