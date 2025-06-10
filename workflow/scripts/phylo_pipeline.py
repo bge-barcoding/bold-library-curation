@@ -1128,7 +1128,10 @@ class PhylogeneticPipeline:
             ts = self.TreeStyle()
             ts.show_leaf_name = False  # We'll add custom labels
             ts.show_branch_support = False # Branch support removed as not doing bootstraps
-            ts.margin = 30  # Equal margins
+            ts.margin_top = 30
+            ts.margin_bottom = 30
+            ts.margin_left = 30
+            ts.margin_right = 30
             ts.title.add_face(self.TextFace(f"Family: {family_name}", fsize=16), column=0)
             
             # Add BAGS grade summary
