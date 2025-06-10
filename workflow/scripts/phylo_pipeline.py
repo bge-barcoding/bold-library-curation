@@ -1127,7 +1127,8 @@ class PhylogeneticPipeline:
             # Create tree style
             ts = self.TreeStyle()
             ts.show_leaf_name = False  # We'll add custom labels
-            ts.show_branch_support = True
+            ts.show_branch_support = False # Branch support removed as not doing bootstraps
+            ts.margin = 30  # Equal margins
             ts.title.add_face(self.TextFace(f"Family: {family_name}", fsize=16), column=0)
             
             # Add BAGS grade summary
@@ -1166,7 +1167,7 @@ class PhylogeneticPipeline:
             def layout(node):
                 if node.is_leaf():
                     # Add colored circle based on BAGS grade (including monophyly)
-                    circle = self.CircleFace(radius=8, color=node.bgcolor, style="sphere")
+                    circle = self.CircleFace(radius=4, color=node.bgcolor, style="sphere")
                     node.add_face(circle, column=0, position="branch-right")
                     
                     # Add species name
