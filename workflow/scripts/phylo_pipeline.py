@@ -490,16 +490,16 @@ class PhylogeneticPipeline:
         bags_grades = bags_grades or {}
         
         for leaf in tree:
-            if leaf.name.startswith('OUTGROUP-'):
-                # Parse: OUTGROUP-species-bin_uri-processid
-                parts = leaf.name.split('-', 3)  # Split on first 3 hyphens
+            if leaf.name.startswith('OUTGROUP|'):
+                # Parse: OUTGROUP|species|bin_uri|processid
+                parts = leaf.name.split('|', 3)  # Split on first 3 pipes
                 is_outgroup = True
                 species = parts[1] if len(parts) > 1 else 'Unknown'
                 bin_uri = parts[2] if len(parts) > 2 else 'NA'
                 processid = parts[3] if len(parts) > 3 else 'NA'
             else:
-                # Parse: species-bin_uri-processid
-                parts = leaf.name.split('-', 2)  # Split on first 2 hyphens
+                # Parse: species|bin_uri|processid
+                parts = leaf.name.split('|', 2)  # Split on first 2 pipes
                 is_outgroup = False
                 species = parts[0] if len(parts) > 0 else 'Unknown'
                 bin_uri = parts[1] if len(parts) > 1 else 'NA'
@@ -928,7 +928,7 @@ class PhylogeneticPipeline:
     def create_fasta_file(self, representatives_df, outgroups_df, fasta_path):
         """
         Create a FASTA file for a family with ingroup and outgroup sequences.
-        Uses the branch labeling format: species-bin_uri-processid
+        Uses the branch labeling format: species|bin_uri|processid
         
         Args:
             representatives_df (pandas.DataFrame): Ingroup representative sequences
@@ -948,12 +948,12 @@ class PhylogeneticPipeline:
                 bin_uri = str(row.get('bin_uri', 'NA')).replace(' ', '_')
                 processid = str(row.get('processid', 'NA')).replace(' ', '_')
                 
-                # Create sequence ID in format: species-bin_uri-processid
-                seq_id = f"{species}-{bin_uri}-{processid}"
+                # Create sequence ID in format: species|bin_uri|processid
+                seq_id = f"{species}|{bin_uri}|{processid}"
                 
-                # Clean any problematic characters for phylogenetic software
+                # Clean any problematic characters for phylogenetic software (but keep | as delimiter)
                 seq_id = seq_id.replace('(', '').replace(')', '').replace('[', '').replace(']', '')
-                seq_id = seq_id.replace(',', '').replace(';', '').replace(':', '').replace('|', '-')
+                seq_id = seq_id.replace(',', '').replace(';', '').replace(':', '')
                 
                 record = SeqRecord(
                     Seq(row['nuc']),
@@ -970,11 +970,11 @@ class PhylogeneticPipeline:
                 processid = str(row.get('processid', 'NA')).replace(' ', '_')
                 
                 # Create sequence ID with OUTGROUP prefix
-                seq_id = f"OUTGROUP-{species}-{bin_uri}-{processid}"
+                seq_id = f"OUTGROUP|{species}|{bin_uri}|{processid}"
                 
-                # Clean any problematic characters for phylogenetic software
+                # Clean any problematic characters for phylogenetic software (but keep | as delimiter)
                 seq_id = seq_id.replace('(', '').replace(')', '').replace('[', '').replace(']', '')
-                seq_id = seq_id.replace(',', '').replace(';', '').replace(':', '').replace('|', '-')
+                seq_id = seq_id.replace(',', '').replace(';', '').replace(':', '')
                 
                 record = SeqRecord(
                     Seq(row['nuc']),
@@ -1011,7 +1011,7 @@ class PhylogeneticPipeline:
             tree = self.Tree(str(tree_file))
             
             # Find outgroup and root
-            outgroup_nodes = [leaf for leaf in tree if leaf.name.startswith('OUTGROUP-')]
+            outgroup_nodes = [leaf for leaf in tree if leaf.name.startswith('OUTGROUP|')]
             if outgroup_nodes:
                 tree.set_outgroup(outgroup_nodes[0])
             
