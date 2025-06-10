@@ -1170,8 +1170,30 @@ class PhylogeneticPipeline:
                     circle = self.CircleFace(radius=4, color=node.bgcolor, style="sphere")
                     node.add_face(circle, column=0, position="branch-right")
                     
-                    # Add species name
-                    species_face = self.TextFace(f" {node.species_clean}", fsize=10)
+                    # Determine text color based on BIN conflicts
+                    bin_uri = node.bin_clean
+                    species_in_bin = []
+                    for leaf in tree:
+                        if (hasattr(leaf, 'bin_clean') and 
+                            leaf.bin_clean == bin_uri and 
+                            not leaf.name.startswith('OUTGROUP')):
+                            species_in_bin.append(leaf.species_clean)
+                    
+                    # Remove duplicates and sort for consistent color assignment
+                    unique_species_in_bin = sorted(list(set(species_in_bin)))
+                    
+                    # Assign text color based on species position in BIN
+                    if len(unique_species_in_bin) > 1:
+                        # Multiple species in BIN - assign different colors
+                        species_colors = ['black', 'blue', 'red', 'purple', 'orange', 'brown']
+                        species_index = unique_species_in_bin.index(node.species_clean)
+                        text_color = species_colors[species_index % len(species_colors)]
+                    else:
+                        # Single species in BIN - use default black
+                        text_color = 'black'
+                    
+                    # Add species name with determined color
+                    species_face = self.TextFace(f" {node.species_clean}", fsize=10, fgcolor=text_color)
                     node.add_face(species_face, column=1, position="branch-right")
                     
                     # Add BIN info
