@@ -79,6 +79,7 @@ JOB_TIME: "04:00:00"
 
 # Compression settings
 COMPRESSION_WORKERS: 16  # Adjust based on your HPC node specs
+COMPRESSION_MODE: "family_directories"  # "individual_files" (legacy) or "family_directories" (recommended)
 COMPRESS_AFTER_SPLIT: true  # Enable/disable compression
 REMOVE_ORIGINAL_DBS: false  # Keep originals for safety initially
 

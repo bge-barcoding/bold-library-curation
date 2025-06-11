@@ -1434,10 +1434,10 @@ rule split_families:
         """
 	
 rule compress_family_databases:
-    """Compress all family database files in parallel for storage efficiency"""
+    """Compress entire family directories (including databases, PDFs, and other files) in parallel for storage efficiency"""
     input:
         families_split=f"{get_results_dir()}/families_split.ok",
-        reports_merged=f"{get_results_dir()}/reports_merged_to_families.ok"
+        phylo_integrated=f"{get_results_dir()}/phylogenetic_results_integrated.ok"
     output:
         marker=f"{get_results_dir()}/family_databases_compressed.ok",
         compression_report=f"{get_results_dir()}/family_databases/compression_report.txt"
@@ -1445,6 +1445,7 @@ rule compress_family_databases:
         source_dir=f"{get_results_dir()}/family_databases",
         output_dir=f"{get_results_dir()}/family_databases_compressed",
         workers=config.get("COMPRESSION_WORKERS", 16),
+        compression_mode=config.get("COMPRESSION_MODE", "family_directories"),  # New parameter
         log_dir=get_log_dir()
     log: f"{get_log_dir()}/compress_family_databases.log"
     conda: "envs/compress_databases.yaml"
@@ -1453,6 +1454,7 @@ rule compress_family_databases:
         """
         echo "=== Starting Family Database Compression ===" > {log}
         echo "Start time: $(date)" >> {log}
+        echo "Compression mode: {params.compression_mode}" >> {log}
         echo "Source directory: {params.source_dir}" >> {log}
         echo "Output directory: {params.output_dir}" >> {log}
         echo "Workers: {params.workers}" >> {log}
@@ -1461,34 +1463,45 @@ rule compress_family_databases:
         # Create output directory
         mkdir -p {params.output_dir}
         
-        # Run compression script
+        # Run compression script with specified mode
         python workflow/scripts/zip_databases.py \
             --source {params.source_dir} \
             --output {params.output_dir} \
             --log-dir {params.log_dir} \
             --workers {params.workers} \
+            --mode {params.compression_mode} \
             --extensions .db \
             2>> {log}
         
-        # Check if compression was successful
+        # Check if compression was successful based on compression mode
         COMPRESSED_COUNT=$(find {params.output_dir} -name "*.zip" | wc -l)
-        ORIGINAL_COUNT=$(find {params.source_dir} -name "*.db" | wc -l)
+        
+        if [ "{params.compression_mode}" = "family_directories" ]; then
+            # Count family directories containing .db files
+            ORIGINAL_COUNT=$(find {params.source_dir} -name "*.db" -exec dirname {{}} \; | sort -u | wc -l)
+            ITEM_TYPE="family directories"
+        else
+            # Count individual .db files (legacy mode)
+            ORIGINAL_COUNT=$(find {params.source_dir} -name "*.db" | wc -l)
+            ITEM_TYPE="database files"
+        fi
         
         echo "" >> {log}
         echo "Compression Summary:" >> {log}
-        echo "Original .db files: $ORIGINAL_COUNT" >> {log}
+        echo "Original $ITEM_TYPE: $ORIGINAL_COUNT" >> {log}
         echo "Compressed .zip files: $COMPRESSED_COUNT" >> {log}
         
         if [ "$COMPRESSED_COUNT" -eq "$ORIGINAL_COUNT" ]; then
-            echo "SUCCESS: All database files compressed successfully" >> {log}
+            echo "SUCCESS: All $ITEM_TYPE compressed successfully" >> {log}
             
-            # Generate compression report
+            # Generate compression report with enhanced details for family directories
             echo "Family Database Compression Report" > {output.compression_report}
             echo "=================================" >> {output.compression_report}
             echo "Completed: $(date)" >> {output.compression_report}
+            echo "Compression mode: {params.compression_mode}" >> {output.compression_report}
             echo "" >> {output.compression_report}
-            echo "Files processed: $ORIGINAL_COUNT" >> {output.compression_report}
-            echo "Files compressed: $COMPRESSED_COUNT" >> {output.compression_report}
+            echo "$ITEM_TYPE processed: $ORIGINAL_COUNT" >> {output.compression_report}
+            echo "Zip files created: $COMPRESSED_COUNT" >> {output.compression_report}
             echo "" >> {output.compression_report}
             
             # Calculate size savings
@@ -1501,6 +1514,42 @@ rule compress_family_databases:
                 echo "Space savings: $SAVINGS%" >> {output.compression_report}
             fi
             
+            # Add details about what's included in family directories
+            if [ "{params.compression_mode}" = "family_directories" ]; then
+                echo "" >> {output.compression_report}
+                echo "Family Directory Contents:" >> {output.compression_report}
+                
+                # Count different file types across all families
+                DB_COUNT=$(find {params.source_dir} -name "*.db" | wc -l)
+                PDF_COUNT=$(find {params.source_dir} -name "*.pdf" | wc -l)
+                JSON_COUNT=$(find {params.source_dir} -name "*.json" | wc -l)
+                OTHER_COUNT=$(find {params.source_dir} -type f ! -name "*.db" ! -name "*.pdf" ! -name "*.json" | wc -l)
+                
+                echo "- Database files (.db): $DB_COUNT" >> {output.compression_report}
+                echo "- PDF files (.pdf): $PDF_COUNT" >> {output.compression_report}
+                echo "- JSON files (.json): $JSON_COUNT" >> {output.compression_report}
+                echo "- Other files: $OTHER_COUNT" >> {output.compression_report}
+                
+                TOTAL_FILES=$((DB_COUNT + PDF_COUNT + JSON_COUNT + OTHER_COUNT))
+                echo "- Total files: $TOTAL_FILES" >> {output.compression_report}
+                
+                if [ "$ORIGINAL_COUNT" -gt 0 ]; then
+                    AVG_FILES=$(echo "scale=1; $TOTAL_FILES / $ORIGINAL_COUNT" | bc -l)
+                    echo "- Average files per family: $AVG_FILES" >> {output.compression_report}
+                fi
+                
+                # Show sample family structure
+                echo "" >> {output.compression_report}
+                echo "Sample family directory structure:" >> {output.compression_report}
+                SAMPLE_FAMILY=$(find {params.source_dir} -name "*.db" | head -1 | xargs dirname)
+                if [ -n "$SAMPLE_FAMILY" ]; then
+                    echo "$(basename "$SAMPLE_FAMILY"):" >> {output.compression_report}
+                    ls -la "$SAMPLE_FAMILY" | tail -n +2 | while read line; do
+                        echo "  $line" >> {output.compression_report}
+                    done
+                fi
+            fi
+            
             touch {output.marker}
         else
             echo "ERROR: Compression incomplete. Expected $ORIGINAL_COUNT, got $COMPRESSED_COUNT" >> {log}
@@ -1511,21 +1560,21 @@ rule compress_family_databases:
         echo "End time: $(date)" >> {log}
         """
 
-rule merge_reports_to_families:
-    """Merge phylogenies and other reports into family subdirectories"""
+rule integrate_phylogenetic_results:
+    """Recursively integrate phylogenies and curation checklists into family directories"""
     input:
         families_split=f"{get_results_dir()}/families_split.ok",
         phylo_done=f"{get_results_dir()}/phylogenetic_analysis_parallel_completed.ok" if config.get("PHYLO_ENABLED", False) else []
     output:
-        marker=f"{get_results_dir()}/reports_merged_to_families.ok"
+        marker=f"{get_results_dir()}/phylogenetic_results_integrated.ok"
     params:
         phylo_source_dir=f"{get_results_dir()}/{config.get('PHYLO_OUTPUT_DIR', 'phylogenies')}",
         family_db_dir=f"{get_results_dir()}/family_databases",
         phylo_enabled=config.get("PHYLO_ENABLED", False)
-    log: f"{get_log_dir()}/merge_reports_to_families.log"
+    log: f"{get_log_dir()}/integrate_phylogenetic_results.log"
     shell:
         """
-        echo "=== Starting Report Merging to Family Directories ===" > {log}
+        echo "=== Starting Phylogenetic Results Integration ===" > {log}
         echo "Start time: $(date)" >> {log}
         echo "Phylogenies source: {params.phylo_source_dir}" >> {log}
         echo "Family databases directory: {params.family_db_dir}" >> {log}
@@ -1535,65 +1584,152 @@ rule merge_reports_to_families:
         # Initialize counters
         TOTAL_FAMILIES=0
         PHYLO_MERGED=0
+        CURATION_MERGED=0
         
-        # Process each family directory
+        # Function to extract family name from various sources
+        get_family_name() {{
+            local family_dir="$1"
+            local family_name=""
+            
+            # Try to get family name from directory name first
+            family_name=$(basename "$family_dir")
+            
+            # If directory has a .db file, extract family name from filename
+            if [ -z "$family_name" ] || [ "$family_name" = "." ]; then
+                db_file=$(find "$family_dir" -maxdepth 1 -name "*.db" | head -1)
+                if [ -n "$db_file" ]; then
+                    family_name=$(basename "$db_file" .db)
+                fi
+            fi
+            
+            echo "$family_name"
+        }}
+        
+        # Recursively find all directories containing .db files (family directories)
         if [ -d "{params.family_db_dir}" ]; then
-            for family_dir in {params.family_db_dir}/*/; do
+            echo "Scanning for family directories containing .db files..." >> {log}
+            
+            # Create a temporary file to store family directories
+            TEMP_FAMILIES=$(mktemp)
+            find "{params.family_db_dir}" -name "*.db" -exec dirname {{}} \; | sort -u > "$TEMP_FAMILIES"
+            
+            # Count total families found
+            TOTAL_FAMILIES=$(wc -l < "$TEMP_FAMILIES")
+            echo "Found $TOTAL_FAMILIES family directories" >> {log}
+            
+            # Process each family directory
+            while IFS= read -r family_dir; do
                 if [ -d "$family_dir" ]; then
-                    family_name=$(basename "$family_dir")
-                    TOTAL_FAMILIES=$((TOTAL_FAMILIES + 1))
+                    # Extract family name
+                    family_name=$(get_family_name "$family_dir")
                     
-                    echo "Processing family: $family_name" >> {log}
-                    
-                    # Create phylogenies subdirectory
-                    mkdir -p "$family_dir/phylogenies"
-                    
-                    # Copy phylogeny files if they exist and phylo is enabled
-                    if [ "{params.phylo_enabled}" = "True" ] && [ -d "{params.phylo_source_dir}/$family_name" ]; then
-                        echo "  Copying phylogeny files for $family_name" >> {log}
+                    if [ -n "$family_name" ] && [ "$family_name" != "." ]; then
+                        echo "Processing family: $family_name (in $family_dir)" >> {log}
                         
-                        # Copy all files from phylogenies source to family subdirectory
-                        if cp -r {params.phylo_source_dir}/$family_name/* "$family_dir/phylogenies/" 2>/dev/null; then
-                            PHYLO_MERGED=$((PHYLO_MERGED + 1))
-                            echo "  ✓ Successfully copied phylogeny files" >> {log}
+                        # Integration successful flag
+                        INTEGRATION_SUCCESS=false
+                        
+                        # Copy phylogeny files if they exist and phylo is enabled
+                        if [ "{params.phylo_enabled}" = "True" ] && [ -d "{params.phylo_source_dir}/$family_name" ]; then
+                            echo "  Integrating phylogeny files for $family_name" >> {log}
                             
-                            # List what was copied
-                            echo "    Files copied:" >> {log}
-                            ls -la "$family_dir/phylogenies/" | while read line; do
+                            # Create phylogenies subdirectory if it doesn't exist
+                            mkdir -p "$family_dir/phylogenies"
+                            
+                            # Copy all files from phylogenies source to family subdirectory
+                            if cp -r "{params.phylo_source_dir}/$family_name"/* "$family_dir/phylogenies/" 2>/dev/null; then
+                                PHYLO_MERGED=$((PHYLO_MERGED + 1))
+                                INTEGRATION_SUCCESS=true
+                                echo "  ✓ Successfully integrated phylogeny files" >> {log}
+                                
+                                # List what was copied
+                                echo "    Phylogeny files integrated:" >> {log}
+                                ls -la "$family_dir/phylogenies/" 2>/dev/null | while read line; do
+                                    echo "      $line" >> {log}
+                                done
+                            else
+                                echo "  ⚠ No phylogeny files found for $family_name" >> {log}
+                            fi
+                        else
+                            if [ "{params.phylo_enabled}" != "True" ]; then
+                                echo "  Phylogenetic analysis disabled, skipping phylogeny integration" >> {log}
+                            else
+                                echo "  No phylogeny directory found for $family_name" >> {log}
+                            fi
+                        fi
+                        
+                        # Copy curation checklists directly to family directory (not in subdirectory)
+                        if [ "{params.phylo_enabled}" = "True" ] && [ -d "{params.phylo_source_dir}/$family_name" ]; then
+                            # Look for curation checklist PDFs
+                            CURATION_FILES=$(find "{params.phylo_source_dir}/$family_name" -name "*curation_checklist.pdf" 2>/dev/null)
+                            
+                            if [ -n "$CURATION_FILES" ]; then
+                                echo "  Integrating curation checklist for $family_name" >> {log}
+                                
+                                # Copy curation checklists to family directory root
+                                echo "$CURATION_FILES" | while read curation_file; do
+                                    if [ -f "$curation_file" ]; then
+                                        cp "$curation_file" "$family_dir/" 2>/dev/null
+                                        echo "    ✓ Copied: $(basename "$curation_file")" >> {log}
+                                    fi
+                                done
+                                
+                                CURATION_MERGED=$((CURATION_MERGED + 1))
+                                INTEGRATION_SUCCESS=true
+                            else
+                                echo "  ⚠ No curation checklist found for $family_name" >> {log}
+                            fi
+                        fi
+                        
+                        # Log final directory contents for this family
+                        if [ "$INTEGRATION_SUCCESS" = "true" ]; then
+                            echo "    Final family directory contents:" >> {log}
+                            ls -la "$family_dir" | while read line; do
                                 echo "      $line" >> {log}
                             done
-                        else
-                            echo "  ⚠ No phylogeny files found for $family_name" >> {log}
                         fi
                     else
-                        if [ "{params.phylo_enabled}" != "True" ]; then
-                            echo "  Phylogenetic analysis disabled, skipping" >> {log}
-                        else
-                            echo "  No phylogeny directory found for $family_name" >> {log}
-                        fi
+                        echo "  Warning: Could not determine family name for directory: $family_dir" >> {log}
                     fi
                 fi
-            done
+            done < "$TEMP_FAMILIES"
+            
+            # Clean up temporary file
+            rm -f "$TEMP_FAMILIES"
         else
             echo "ERROR: Family databases directory not found: {params.family_db_dir}" >> {log}
             exit 1
         fi
         
         echo "" >> {log}
-        echo "=== Report Merging Summary ===" >> {log}
+        echo "=== Integration Summary ===" >> {log}
         echo "Total families processed: $TOTAL_FAMILIES" >> {log}
-        echo "Families with phylogenies merged: $PHYLO_MERGED" >> {log}
+        echo "Families with phylogenies integrated: $PHYLO_MERGED" >> {log}
+        echo "Families with curation checklists integrated: $CURATION_MERGED" >> {log}
         
         # Verify results
         if [ "$TOTAL_FAMILIES" -gt 0 ]; then
-            echo "Report merging completed successfully" >> {log}
+            echo "Phylogenetic results integration completed successfully" >> {log}
+            
+            # Create integration summary
+            echo "Integration Summary:" >> {log}
+            echo "  - Searched recursively in: {params.family_db_dir}" >> {log}
+            echo "  - Source phylogenies from: {params.phylo_source_dir}" >> {log}
+            echo "  - Families found: $TOTAL_FAMILIES" >> {log}
+            echo "  - Phylogenies integrated: $PHYLO_MERGED" >> {log}
+            echo "  - Curation checklists integrated: $CURATION_MERGED" >> {log}
+            
+            if [ "$PHYLO_MERGED" -gt 0 ] || [ "$CURATION_MERGED" -gt 0 ]; then
+                echo "  - Integration rate: $(echo "scale=1; ($PHYLO_MERGED + $CURATION_MERGED) * 50 / $TOTAL_FAMILIES" | bc -l)%" >> {log}
+            fi
+            
             touch {output.marker}
         else
             echo "ERROR: No families found to process" >> {log}
             exit 1
         fi
         
-        echo "=== Report Merging Completed ===" >> {log}
+        echo "=== Phylogenetic Results Integration Completed ===" >> {log}
         echo "End time: $(date)" >> {log}
         """
 
@@ -1818,7 +1954,7 @@ rule all:
     input:
         f"{get_results_dir()}/result_output.tsv",
         f"{get_results_dir()}/families_split.ok",
-        f"{get_results_dir()}/reports_merged_to_families.ok",
+        f"{get_results_dir()}/phylogenetic_results_integrated.ok",
         f"{get_results_dir()}/family_databases_compressed.ok",
         f"{get_results_dir()}/country_representatives_selected.ok",
         f"{get_results_dir()}/stats_report_generated.ok",
