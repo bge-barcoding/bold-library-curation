@@ -23,6 +23,7 @@ import subprocess
 import sys
 import json
 import gc
+import time
 from pathlib import Path
 from Bio import SeqIO
 from Bio.Seq import Seq
@@ -62,6 +63,9 @@ class PhylogeneticPipeline:
         self.generate_pdfs = generate_pdfs
         self.bin_conflict_analysis = bin_conflict_analysis  # Kept for compatibility but not used
         self.custom_parameters = custom_parameters or {}
+        
+        # Initialize data cache for family information
+        self.family_data_cache = {}
         
         # Print custom parameter info
         if self.custom_parameters:
@@ -129,6 +133,132 @@ class PhylogeneticPipeline:
         self.cleanup_intermediates = True
         self.batch_size = 50  # Process families in batches for memory efficiency
     
+    def create_connection(self, timeout=30):
+        """
+        Create SQLite connection with WAL-optimized settings for concurrent access.
+        
+        Args:
+            timeout (int): Connection timeout in seconds
+            
+        Returns:
+            sqlite3.Connection: Configured database connection
+        """
+        conn = sqlite3.connect(self.db_path, timeout=timeout)
+        # Optimize for WAL mode and concurrent reads
+        conn.execute("PRAGMA busy_timeout = 30000")  # 30 second timeout
+        conn.execute("PRAGMA temp_store = MEMORY")   # Use memory for temp storage
+        conn.execute("PRAGMA cache_size = -64000")   # 64MB cache
+        conn.execute("PRAGMA read_uncommitted = 1")  # Allow dirty reads for better concurrency
+        return conn
+    
+    def execute_with_retry(self, query, params=None, max_retries=3):
+        """
+        Execute SQL query with retry logic for database busy/corruption errors.
+        
+        Args:
+            query (str): SQL query to execute
+            params (list): Query parameters
+            max_retries (int): Maximum number of retry attempts
+            
+        Returns:
+            pandas.DataFrame: Query results
+            
+        Raises:
+            sqlite3.OperationalError: If all retries fail
+        """
+        params = params or []
+        
+        for attempt in range(max_retries):
+            try:
+                conn = self.create_connection()
+                result = pd.read_sql_query(query, conn, params=params)
+                conn.close()
+                return result
+                
+            except sqlite3.OperationalError as e:
+                error_msg = str(e).lower()
+                is_retryable = any(phrase in error_msg for phrase in [
+                    "database is locked",
+                    "disk image is malformed", 
+                    "database disk image is malformed",
+                    "database or disk is full",
+                    "database is busy"
+                ])
+                
+                if is_retryable and attempt < max_retries - 1:
+                    wait_time = (2 ** attempt) + random.uniform(0, 1)  # Exponential backoff with jitter
+                    print(f"   Database error (attempt {attempt + 1}/{max_retries}): {e}")
+                    print(f"   Retrying in {wait_time:.1f} seconds...")
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    # Re-raise if not retryable or max retries exceeded
+                    raise
+            except Exception as e:
+                # Close connection if other error occurs
+                try:
+                    conn.close()
+                except:
+                    pass
+                raise
+    
+    def get_family_data_complete(self, family_name):
+        """
+        Get comprehensive family data in a single query and cache it.
+        This eliminates the need for multiple database queries during PDF generation.
+        
+        Args:
+            family_name (str): Name of the family
+            
+        Returns:
+            pandas.DataFrame: Complete family data including BAGS grades
+        """
+        # Return cached data if available
+        if family_name in self.family_data_cache:
+            return self.family_data_cache[family_name]
+        
+        # Single comprehensive query for all family data
+        query = """
+        SELECT DISTINCT
+            b.nuc,
+            b.genus,
+            b.species,
+            b.processid,
+            b.recordid,
+            b.bin_uri,
+            b.`order`,
+            b.family,
+            b.taxonid,
+            bags.bags_grade
+        FROM bold b
+        JOIN taxa t ON b.taxonid = t.taxonid
+        LEFT JOIN bags ON t.taxonid = bags.taxonid
+        WHERE b.family = ?
+            AND b.nuc IS NOT NULL 
+            AND LENGTH(b.nuc) > 200
+            AND b.genus IS NOT NULL
+            AND b.species IS NOT NULL
+            AND b.bin_uri IS NOT NULL
+            AND b.bin_uri != ''
+            AND b.bin_uri != 'None'
+            AND b.bin_uri LIKE 'BOLD:%'
+            AND t.level = 'species'
+        ORDER BY b.species, b.bin_uri, LENGTH(b.nuc) DESC
+        """
+        
+        try:
+            family_data = self.execute_with_retry(query, [family_name])
+            
+            # Cache the results for future use
+            self.family_data_cache[family_name] = family_data
+            
+            print(f"   Loaded and cached data for {family_name}: {len(family_data)} records")
+            return family_data
+            
+        except Exception as e:
+            print(f"   Error loading family data for {family_name}: {e}")
+            return pd.DataFrame()  # Return empty DataFrame on error
+    
     def get_families_to_process(self, min_otus=3):
         """
         Get families meeting criteria without loading all data.
@@ -140,8 +270,6 @@ class PhylogeneticPipeline:
         Returns:
             pandas.DataFrame: Families with their statistics
         """
-        conn = sqlite3.connect(self.db_path)
-        
         query = """
         SELECT 
             b.family,
@@ -165,15 +293,17 @@ class PhylogeneticPipeline:
         ORDER BY species_bin_count DESC
         """
         
-        families_df = pd.read_sql_query(query, conn, params=[min_otus])
-        conn.close()
-        
-        print(f"Found {len(families_df)} families with ≥{min_otus} species-BIN combinations")
-        return families_df
+        try:
+            families_df = self.execute_with_retry(query, [min_otus])
+            print(f"Found {len(families_df)} families with ≥{min_otus} species-BIN combinations")
+            return families_df
+        except Exception as e:
+            print(f"Error getting families to process: {e}")
+            return pd.DataFrame()
     
     def get_family_sequences_optimized(self, family_name):
         """
-        Get sequences for a single family with optimized query.
+        Get sequences for a single family using cached data when available.
         
         Args:
             family_name (str): Name of the family
@@ -181,35 +311,14 @@ class PhylogeneticPipeline:
         Returns:
             pandas.DataFrame: Family sequence data
         """
-        conn = sqlite3.connect(self.db_path)
+        # Use cached comprehensive data if available
+        family_data = self.get_family_data_complete(family_name)
         
-        # Single family query with proper indexing - now focusing on BIN_URI instead of OTU
-        query = """
-        SELECT DISTINCT
-            b.nuc,
-            b.genus,
-            b.species,
-            b.processid,
-            b.recordid,
-            b.bin_uri,
-            b.`order`,
-            b.family
-        FROM bold b
-        WHERE b.family = ?
-            AND b.nuc IS NOT NULL 
-            AND LENGTH(b.nuc) > 200
-            AND b.genus IS NOT NULL
-            AND b.species IS NOT NULL
-            AND b.bin_uri IS NOT NULL
-            AND b.bin_uri != ''
-            AND b.bin_uri != 'None'
-            AND b.bin_uri LIKE 'BOLD:%'
-        ORDER BY b.species, b.bin_uri, LENGTH(b.nuc) DESC
-        """
+        if family_data.empty:
+            return family_data
         
-        df = pd.read_sql_query(query, conn, params=[family_name])
-        conn.close()
-        return df
+        # Return the basic columns needed for tree building
+        return family_data[['nuc', 'genus', 'species', 'processid', 'recordid', 'bin_uri', 'order', 'family']].copy()
     
     def select_representatives_optimized(self, family_df):
         """
@@ -234,6 +343,7 @@ class PhylogeneticPipeline:
     def collect_family_curation_data(self, family_name):
         """
         Collect all data needed for curation checklist organized by genus and BAGS grade.
+        Uses cached family data when available.
         
         Args:
             family_name (str): Name of the family
@@ -241,31 +351,39 @@ class PhylogeneticPipeline:
         Returns:
             dict: Organized curation data by genus and grade
         """
-        conn = sqlite3.connect(self.db_path)
+        # Try to use cached comprehensive data first
+        family_data = self.get_family_data_complete(family_name)
         
-        # Get all species in family with their BAGS grades, BINs, and genus information
-        query = """
-        SELECT DISTINCT
-            b.genus,
-            b.species,
-            b.bin_uri,
-            bags.bags_grade
-        FROM bold b
-        JOIN taxa t ON b.taxonid = t.taxonid
-        LEFT JOIN bags ON t.taxonid = bags.taxonid
-        WHERE b.family = ?
-            AND b.genus IS NOT NULL
-            AND b.species IS NOT NULL
-            AND b.bin_uri IS NOT NULL
-            AND b.bin_uri != ''
-            AND b.bin_uri != 'None'
-            AND b.bin_uri LIKE 'BOLD:%'
-            AND t.level = 'species'
-        ORDER BY b.genus, b.species, b.bin_uri
-        """
-        
-        df = pd.read_sql_query(query, conn, params=[family_name])
-        conn.close()
+        if not family_data.empty and 'bags_grade' in family_data.columns:
+            # Use cached data
+            df = family_data[['genus', 'species', 'bin_uri', 'bags_grade']].drop_duplicates()
+        else:
+            # Fallback to direct database query with retry logic
+            query = """
+            SELECT DISTINCT
+                b.genus,
+                b.species,
+                b.bin_uri,
+                bags.bags_grade
+            FROM bold b
+            JOIN taxa t ON b.taxonid = t.taxonid
+            LEFT JOIN bags ON t.taxonid = bags.taxonid
+            WHERE b.family = ?
+                AND b.genus IS NOT NULL
+                AND b.species IS NOT NULL
+                AND b.bin_uri IS NOT NULL
+                AND b.bin_uri != ''
+                AND b.bin_uri != 'None'
+                AND b.bin_uri LIKE 'BOLD:%'
+                AND t.level = 'species'
+            ORDER BY b.genus, b.species, b.bin_uri
+            """
+            
+            try:
+                df = self.execute_with_retry(query, [family_name])
+            except Exception as e:
+                print(f"   Error collecting curation data for {family_name}: {e}")
+                return {'family': family_name, 'genera': {}}
         
         if df.empty:
             return {'family': family_name, 'genera': {}}
@@ -342,8 +460,6 @@ class PhylogeneticPipeline:
         Returns:
             list: Enhanced species data with sharing information
         """
-        conn = sqlite3.connect(self.db_path)
-        
         # For each species, check what other species share their BINs
         for species_data in grade_e_species:
             species_name = species_data['species']
@@ -364,8 +480,12 @@ class PhylogeneticPipeline:
                 ORDER BY b.species
                 """
                 
-                sharing_df = pd.read_sql_query(query, conn, params=[bin_uri, species_name])
-                sharing_species = sharing_df['species'].tolist() if not sharing_df.empty else []
+                try:
+                    sharing_df = self.execute_with_retry(query, [bin_uri, species_name])
+                    sharing_species = sharing_df['species'].tolist() if not sharing_df.empty else []
+                except Exception as e:
+                    print(f"   Warning: Error getting BIN sharing info for {bin_uri}: {e}")
+                    sharing_species = []
                 
                 sharing_info.append({
                     'bin_uri': bin_uri,
@@ -374,12 +494,11 @@ class PhylogeneticPipeline:
             
             species_data['sharing_info'] = sharing_info
         
-        conn.close()
         return grade_e_species
 
     def get_bags_grades(self, family_df):
         """
-        Get BAGS grades for sequences in family from the database.
+        Get BAGS grades for sequences in family using cached data when available.
         
         Args:
             family_df (pandas.DataFrame): Family sequence data
@@ -389,27 +508,34 @@ class PhylogeneticPipeline:
         """
         if family_df.empty:
             return {}
+        
+        # Try to get from cached data first
+        if hasattr(family_df, 'bags_grade') and 'bags_grade' in family_df.columns:
+            # If BAGS grades are already in the DataFrame (from cached data)
+            return dict(zip(family_df['species'], family_df['bags_grade']))
+        
+        # Fallback to database query with retry logic
+        try:
+            species_list = family_df['species'].unique().tolist()
+            placeholders = ','.join(['?' for _ in species_list])
             
-        conn = sqlite3.connect(self.db_path)
-        
-        # Get unique species in the family
-        species_list = family_df['species'].unique().tolist()
-        placeholders = ','.join(['?' for _ in species_list])
-        
-        query = f"""
-        SELECT t.name as species, bags.bags_grade
-        FROM taxa t
-        JOIN bags ON t.taxonid = bags.taxonid
-        WHERE t.level = 'species' 
-        AND t.name IN ({placeholders})
-        """
-        
-        grades_df = pd.read_sql_query(query, conn, params=species_list)
-        conn.close()
-        
-        # Convert to dictionary for easy lookup
-        grades_dict = dict(zip(grades_df['species'], grades_df['bags_grade']))
-        return grades_dict
+            query = f"""
+            SELECT t.name as species, bags.bags_grade
+            FROM taxa t
+            JOIN bags ON t.taxonid = bags.taxonid
+            WHERE t.level = 'species' 
+            AND t.name IN ({placeholders})
+            """
+            
+            grades_df = self.execute_with_retry(query, species_list)
+            
+            # Convert to dictionary for easy lookup
+            grades_dict = dict(zip(grades_df['species'], grades_df['bags_grade']))
+            return grades_dict
+            
+        except Exception as e:
+            print(f"   Warning: Could not load BAGS grades: {e}")
+            return {}
 
     def get_outgroups_optimized(self, family_order, family_name, num_outgroups=3):
         """
@@ -423,8 +549,6 @@ class PhylogeneticPipeline:
         Returns:
             pandas.DataFrame: Outgroup sequences
         """
-        conn = sqlite3.connect(self.db_path)
-        
         query = """
         SELECT DISTINCT
             b.nuc,
@@ -450,8 +574,11 @@ class PhylogeneticPipeline:
         LIMIT ?
         """
         
-        outgroups_df = pd.read_sql_query(query, conn, params=[family_order, family_name, num_outgroups * 5])
-        conn.close()
+        try:
+            outgroups_df = self.execute_with_retry(query, [family_order, family_name, num_outgroups * 5])
+        except Exception as e:
+            print(f"   Warning: Error getting outgroups: {e}")
+            return pd.DataFrame()
         
         # Select diverse outgroups (one per family if possible)
         outgroups = []
@@ -1015,10 +1142,20 @@ class PhylogeneticPipeline:
             if outgroup_nodes:
                 tree.set_outgroup(outgroup_nodes[0])
             
-            # Get BAGS grades for this family
-            # We need to get the family data to look up BAGS grades
-            family_df = self.get_family_sequences_optimized(family_name)
-            bags_grades = self.get_bags_grades(family_df)
+            # Get BAGS grades for this family using cached data
+            family_data = self.get_family_data_complete(family_name)
+            
+            if family_data.empty:
+                print(f"   Warning: No cached data available for {family_name} PDF generation")
+                return False
+            
+            # Extract BAGS grades from cached data
+            if 'bags_grade' in family_data.columns:
+                bags_grades = dict(zip(family_data['species'], family_data['bags_grade']))
+            else:
+                # Fallback to old method if BAGS grades not in cache
+                family_df = family_data[['nuc', 'genus', 'species', 'processid', 'recordid', 'bin_uri', 'order', 'family']].copy()
+                bags_grades = self.get_bags_grades(family_df)
             
             # Parse metadata and analyze BAGS grades
             metadata = self.parse_sequence_metadata(tree, bags_grades)
@@ -1374,6 +1511,26 @@ class PhylogeneticPipeline:
         except Exception as e:
             print(f"   Error processing {family_name}: {e}")
             return None
+    
+    def optimize_family_processing(self, family_name):
+        """
+        Pre-load and cache family data to optimize subsequent processing.
+        This reduces database queries during PDF and curation checklist generation.
+        
+        Args:
+            family_name (str): Name of the family to optimize
+        """
+        try:
+            # Pre-load comprehensive family data into cache
+            family_data = self.get_family_data_complete(family_name)
+            
+            if not family_data.empty:
+                print(f"   Optimized data access for {family_name}: {len(family_data)} records cached")
+            else:
+                print(f"   Warning: No data found for family {family_name}")
+                
+        except Exception as e:
+            print(f"   Warning: Could not optimize data for {family_name}: {e}")
 
     def run_pipeline(self, min_otus=3, max_families=None, alignment_method="mafft"):
         """
@@ -1552,6 +1709,9 @@ class PhylogeneticPipeline:
             print(f"\n{batch_prefix}[{i}/{len(families_df)}] Processing {family_name}")
             
             try:
+                # Pre-load family data to optimize database access
+                self.optimize_family_processing(family_name)
+                
                 result = self.process_single_family(
                     family_name, family_order, min_otus, num_outgroups,
                     alignment_method, tree_method, bootstrap
@@ -1573,8 +1733,10 @@ class PhylogeneticPipeline:
                 
             # Memory cleanup every 5 families
             if i % 5 == 0:
+                # Clear family data cache to prevent memory buildup
+                self.family_data_cache.clear()
                 gc.collect()
-                print(f"   Memory cleanup after {i} families")
+                print(f"   Memory cleanup after {i} families (cache cleared)")
         
         # Generate summary
         self.generate_pipeline_summary(results, failed_families, batch_prefix)
