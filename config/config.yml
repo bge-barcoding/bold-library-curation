@@ -15,8 +15,8 @@ LOG_LEVEL: "INFO"
 # -------------------------------
 # Output directory configuration
 # -------------------------------
-RESULTS_DIR: "results"  # Default results directory - can be overridden
-LOG_DIR: "logs"  # Default log directory - can be overridden
+RESULTS_DIR: "results_phylo_pdf6"  # Default results directory - can be overridden
+LOG_DIR: "logs_phylo_pdf6"  # Default log directory - can be overridden
 
 # -------------------------------
 # Pre-scoring filter options
@@ -79,13 +79,14 @@ JOB_TIME: "04:00:00"
 
 # Compression settings
 COMPRESSION_WORKERS: 16  # Adjust based on your HPC node specs
+COMPRESSION_MODE: "family_directories"  # "individual_files" (legacy) or "family_directories" (recommended)
 COMPRESS_AFTER_SPLIT: true  # Enable/disable compression
 REMOVE_ORIGINAL_DBS: false  # Keep originals for safety initially
 
 # -------------------------------
 # Statistics Report Configuration
 # ------------------------------
-SKIP_DETAILED_TAXONOMY: true     # Skip detailed family-by-order pages for faster execution
+SKIP_DETAILED_TAXONOMY: false     # Skip detailed family-by-order pages for faster execution
 STATS_REPORT_FAST_MODE: false    # Use true to specify sub-sampling for very large datasets (>5M records)
 STATS_REPORT_SAMPLE_SIZE: 100000 # Sample size for fast mode
 STATS_REPORT_MEMORY_MB: 32000    # Memory in MB for Snakemake resource allocation
@@ -95,63 +96,45 @@ STATS_REPORT_RUNTIME: 120        # Maximum runtime in minutes (2 hours)
 # -------------------------------
 # Phylogenetic Analysis Configuration
 # -------------------------------
-PHYLO_ENABLED: true              # Master switch to enable/disable phylogenetic analysis
+PHYLO_ENABLED: true                    # Master switch to enable/disable phylogenetic analysis
 
-# Database and output configuration
-PHYLO_OUTPUT_DIR: "phylogenies"  # Directory for phylogenetic outputs (relative to RESULTS_DIR)
-PHYLO_DATABASE: "bold.db"        # SQLite database name (will be found in RESULTS_DIR)
+# Output configuration
+PHYLO_OUTPUT_DIR: "phylogenies"        # Directory for phylogenetic outputs (relative to RESULTS_DIR)
 
 # Analysis scope and filtering
-PHYLO_MIN_OTUS: 3                # Minimum number of OTUs required per family for analysis
-PHYLO_MAX_FAMILIES: 2            # Maximum families to process (0 = all families, number = limit for testing)
-PHYLO_MIN_SEQUENCE_LENGTH: 200   # Minimum sequence length in base pairs
-PHYLO_TARGET_FAMILIES: []        # Specific families to analyze (empty = all families meeting criteria)
-                                 # Example: ["Libellulidae", "Coenagrionidae", "Aeshnidae"]
+PHYLO_MIN_OTUS: 3                      # Minimum number of species-BIN combinations required per family
+PHYLO_MAX_FAMILIES: 0                  # Maximum families to process (0 = all families, number = limit for testing)
+PHYLO_KINGDOMS: ["Animalia"]           # Kingdoms to process: ["all"] or specific kingdoms like ["Animalia", "Plantae"]
 
-# OTU representative selection strategies
-PHYLO_SELECTION_STRATEGY: "best_quality"  # Options: "longest", "random", "best_quality"
-                                          # - longest: Select longest sequence per OTU
-                                          # - random: Random sequence per OTU
-                                          # - best_quality: Prefer sequences without ambiguous bases, then longest
+# Parallel processing configuration (SLURM Job Arrays)
+PHYLO_NUM_JOBS: 50                     # Number of SLURM array jobs
+PHYLO_FAMILIES_PER_JOB: null           # Fixed families per job (null = auto-distribute evenly)
+PHYLO_MAX_CONCURRENT: 10               # Maximum concurrent jobs (controls %N in array)
 
-# Outgroup selection
-PHYLO_NUM_OUTGROUPS: 3           # Number of outgroup sequences to include per family tree
-PHYLO_OUTGROUP_STRATEGY: "diverse"  # Options: "diverse", "random"
-                                    # - diverse: Select from different families to maximize diversity
-                                    # - random: Random selection from available outgroups
+# SLURM resource allocation per job
+PHYLO_JOB_MEMORY: "8G"                # Memory per job
+PHYLO_JOB_TIME: "24:00:00"             # Time limit per job (HH:MM:SS)
+PHYLO_PARTITION: "medium"                # SLURM partition to use (medium/day)
 
-# Software configuration
-PHYLO_ALIGNMENT_METHOD: "mafft"   # Options: "mafft", "muscle"
-PHYLO_ALIGNMENT_ALGORITHM: "localpair" # MAFFT algorithm: "auto", "linsi", "ginsi", "einsi", "localpair"
-PHYLO_TREE_METHOD: "iqtree"     # Options: "fasttree", "iqtree"
-PHYLO_TREE_MODEL: "gtr"           # Substitution model: "gtr", "jc", "nt" (for FastTree)
-PHYLO_BOOTSTRAP: 100             # Bootstrap replicates (for IQ-TREE only)
-
-# Resource allocation
-PHYLO_THREADS: 8                  # Number of CPU threads for phylogenetic software
-PHYLO_MEMORY: "8G"                # Memory allocation for alignment and tree building
-PHYLO_MAX_RUNTIME: "02:00:00"     # Maximum runtime per family (HH:MM:SS format)
-
-# Quality control and validation
-PHYLO_VALIDATE_SEQUENCES: true    # Perform sequence validation before analysis
-PHYLO_REMOVE_DUPLICATES: true     # Remove duplicate sequences within families
-PHYLO_CHECK_OUTGROUPS: true       # Validate outgroup selection (same order requirement)
+# Analysis methods
+PHYLO_ALIGNMENT_METHOD: "mafft"        # Alignment method: "mafft" or "muscle"
+PHYLO_TREE_METHOD: "fasttree"          # Tree method: "fasttree" or "iqtree"
+PHYLO_BOOTSTRAP: 1000                  # Bootstrap replicates (for IQ-TREE only)
+PHYLO_NUM_OUTGROUPS: 3                 # Number of outgroup sequences per tree
 
 # Output options
-PHYLO_SAVE_METADATA: true         # Save detailed metadata for each analysis
-PHYLO_COMPRESS_OUTPUTS: false     # Compress output files to save space
-PHYLO_GENERATE_REPORT: true       # Generate comprehensive analysis report
-PHYLO_LOG_LEVEL: "INFO"           # Logging level: "DEBUG", "INFO", "WARNING", "ERROR"
+PHYLO_GENERATE_PDFS: true              # Generate tree visualization PDFs with BAGS grades
+PHYLO_CLEANUP_INTERMEDIATES: true      # Clean up intermediate files to save space
 
-# Advanced options
-PHYLO_CUSTOM_PARAMETERS:          # Custom parameters for external software
-  mafft: ["--adjustdirection", "--op", "1.53", "--ep", "0.123", "--maxiterate", "1000"]  # Optimized for protein-coding genes with reverse complement detection
-  fasttree: []                    # Additional FastTree parameters: ["-slow"]
-  iqtree: []                      # Additional IQ-TREE parameters: ["-redo"]
+# Advanced configuration (optional)
+PHYLO_SELECTION_STRATEGY: "best_quality"  # Representative selection: "longest", "random", "best_quality"
 
-# Parallel processing (for large datasets)
-PHYLO_PARALLEL_FAMILIES: false    # Process families in parallel (requires more resources)
-PHYLO_MAX_PARALLEL_JOBS: 4        # Maximum number of families to process simultaneously
+# Custom parameters for phylogenetic software (optional overrides)
+# These override the optimized defaults when specified
+PHYLO_CUSTOM_PARAMETERS:
+  mafft: ["--quiet", "--adjustdirection", "--op", "10.0", "--ep", "1.0", "--maxiterate", "1000"]  # High gap penalties for COI - discourages spurious gaps
+  fasttree: []                    # Additional FastTree parameters: ["-slow"] for higher accuracy
+  iqtree: ["--fast", "-m", "GTR+I+G"]   # Fast mode with GTR+I+G model for COI sequences
 
 # Note: Output paths are dynamically constructed using RESULTS_DIR and LOG_DIR 
 # in the Snakefile helper functions. Directories are created automatically.

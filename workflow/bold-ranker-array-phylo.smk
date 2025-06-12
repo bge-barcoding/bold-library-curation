@@ -663,7 +663,8 @@ rule BAGS:
         bags_optimized=f"{get_results_dir()}/bags_optimized.ok"
     params:
         log_level=config['LOG_LEVEL'],
-        libs=config["LIBS"]
+        libs=config["LIBS"],
+        log_dir=get_log_dir()
     output:
         tsv=f"{get_results_dir()}/assessed_BAGS.tsv"
     log: f"{get_log_dir()}/assess_BAGS.log"
@@ -686,14 +687,14 @@ rule BAGS:
             --db {input.db} \
             --progress 50 \
             > {output.tsv} \
-            2> >(tee logs/bags_full_debug.log | grep "PROGRESS:" >> {log}) || \
+            2> >(tee {params.log_dir}/bags_full_debug.log | grep "PROGRESS:" >> {log}) || \
         # Fallback for systems without process substitution
         (perl -I{params.libs} workflow/scripts/assess_taxa_simplified.pl \
             --db {input.db} \
             --progress 50 \
-            > {output.tsv} 2> logs/bags_all_output.log && \
+            > {output.tsv} 2> {params.log_dir}/bags_all_output.log && \
          echo "Extracting progress information..." >> {log} && \
-         grep "PROGRESS:" logs/bags_all_output.log >> {log} || true)
+         grep "PROGRESS:" {params.log_dir}/bags_all_output.log >> {log} || true)
         
         echo "" >> {log}
         echo "=== BAGS Analysis Completed ===" >> {log}
@@ -921,90 +922,211 @@ OTU
         touch {output}
         """
 
-# PHYLOGENETIC ANALYSIS
-# =====================
+# PHYLOGENETIC ANALYSIS - PARALLEL VERSION
+# ========================================
 
-rule run_phylogenetic_analysis:
-    """Generate phylogenetic trees for each family using OTU sequences"""
+rule prepare_phylo_batches:
+    """Prepare family batches for parallel phylogenetic analysis"""
     input:
         db=get_db_file(),
         otus_ok=f"{get_results_dir()}/otus_imported.ok"
     output:
-        marker=f"{get_results_dir()}/phylogenetic_analysis_completed.ok" if config.get("PHYLO_ENABLED", False) else []
+        batch_dir=directory(f"{get_results_dir()}/phylo_batches"),
+        summary=f"{get_results_dir()}/phylo_batches/phylo_batch_summary.json"
+    params:
+        phylo_enabled=config.get("PHYLO_ENABLED", False),
+        num_jobs=config.get("PHYLO_NUM_JOBS", 50),
+        families_per_job=config.get("PHYLO_FAMILIES_PER_JOB", None),
+        min_otus=config.get("PHYLO_MIN_OTUS", 3),
+        export_kingdoms=config.get("PHYLO_KINGDOMS", ["all"]),
+        kingdoms_arg=lambda wildcards: f"--export-kingdoms {' '.join(config.get('PHYLO_KINGDOMS', ['all']))}"
+    conda: "envs/phylogenetic_analysis.yaml"
+    log: f"{get_log_dir()}/prepare_phylo_batches.log"
+    shell:
+        """
+        if [ "{params.phylo_enabled}" = "True" ]; then
+            echo "=== Preparing Phylogenetic Analysis Batches ===" > {log}
+            echo "Start time: $(date)" >> {log}
+            echo "Database: {input.db}" >> {log}
+            echo "Number of jobs: {params.num_jobs}" >> {log}
+            echo "Minimum OTUs: {params.min_otus}" >> {log}
+            echo "Export kingdoms: {params.export_kingdoms}" >> {log}
+            echo "" >> {log}
+            
+            # Create batch directory
+            mkdir -p {output.batch_dir}
+            
+            # Prepare batches
+            python workflow/scripts/prepare_phylo_batches.py \
+                {input.db} \
+                --output-dir {output.batch_dir} \
+                --num-jobs {params.num_jobs} \
+                --min-otus {params.min_otus} \
+                {params.kingdoms_arg} \
+                2>> {log}
+            
+            echo "Batch preparation completed at $(date)" >> {log}
+        else
+            echo "Phylogenetic analysis disabled - creating empty batch directory" > {log}
+            mkdir -p {output.batch_dir}
+            echo '{{"total_batches": 0, "total_families": 0, "phylo_disabled": true}}' > {output.summary}
+        fi
+        """
+
+rule run_phylogenetic_analysis_parallel:
+    """Run phylogenetic analysis in parallel using SLURM job arrays"""
+    input:
+        batch_dir=f"{get_results_dir()}/phylo_batches",
+        summary=f"{get_results_dir()}/phylo_batches/phylo_batch_summary.json",
+        db=get_db_file()
+    output:
+        marker=f"{get_results_dir()}/phylogenetic_analysis_parallel_completed.ok",
+        custom_params=f"{get_results_dir()}/phylo_custom_parameters.json"
     params:
         phylo_enabled=config.get("PHYLO_ENABLED", False),
         output_dir=f"{get_results_dir()}/{config.get('PHYLO_OUTPUT_DIR', 'phylogenies')}",
         min_otus=config.get("PHYLO_MIN_OTUS", 3),
-        max_families=config.get("PHYLO_MAX_FAMILIES", None),
-        selection_strategy=config.get("PHYLO_SELECTION_STRATEGY", "best_quality"),
-        num_outgroups=config.get("PHYLO_NUM_OUTGROUPS", 3),
         alignment_method=config.get("PHYLO_ALIGNMENT_METHOD", "mafft"),
         tree_method=config.get("PHYLO_TREE_METHOD", "fasttree"),
         bootstrap=config.get("PHYLO_BOOTSTRAP", 1000),
-        log_level=config.get("PHYLO_LOG_LEVEL", "INFO"),
-        max_families_arg=lambda wildcards: f"--max-families {config.get('PHYLO_MAX_FAMILIES', 0)}" if config.get('PHYLO_MAX_FAMILIES', 0) > 0 else ""
-    threads: config.get("PHYLO_THREADS", 4)
-    resources:
-        mem_mb=lambda wildcards: 8000 if config.get("PHYLO_MEMORY", "8G") == "8G" else int(config.get("PHYLO_MEMORY", "8G").replace("G", "")) * 1000,
-        runtime=lambda wildcards: 120 if config.get("PHYLO_MAX_RUNTIME", "02:00:00") == "02:00:00" else int(config.get("PHYLO_MAX_RUNTIME", "02:00:00").split(":")[0]) * 60
-    conda: "envs/phylogenetic_analysis.yaml"
-    log: f"{get_log_dir()}/phylogenetic_analysis.log"
+        num_outgroups=config.get("PHYLO_NUM_OUTGROUPS", 3),
+        generate_pdfs=config.get("PHYLO_GENERATE_PDFS", True),
+        job_memory=config.get("PHYLO_JOB_MEMORY", "32G"),
+        job_time=config.get("PHYLO_JOB_TIME", "24:00:00"),
+        max_concurrent=config.get("PHYLO_MAX_CONCURRENT", 10),
+        partition=config.get("PHYLO_PARTITION", "week"),
+        custom_parameters=config.get("PHYLO_CUSTOM_PARAMETERS", {}),
+        log_dir=get_log_dir()
+    log: f"{get_log_dir()}/phylogenetic_analysis_parallel.log"
     shell:
         """
         if [ "{params.phylo_enabled}" = "True" ]; then
-            echo "=== Starting Phylogenetic Analysis ===" > {log}
+            echo "=== Starting Parallel Phylogenetic Analysis ===" > {log}
             echo "Start time: $(date)" >> {log}
             echo "Database: {input.db}" >> {log}
+            echo "Batch directory: {input.batch_dir}" >> {log}
             echo "Output directory: {params.output_dir}" >> {log}
-            echo "Minimum OTUs per family: {params.min_otus}" >> {log}
-            echo "Maximum families to process: {params.max_families}" >> {log}
-            echo "Selection strategy: {params.selection_strategy}" >> {log}
-            echo "Number of outgroups: {params.num_outgroups}" >> {log}
             echo "Alignment method: {params.alignment_method}" >> {log}
             echo "Tree method: {params.tree_method}" >> {log}
-            echo "Threads: {threads}" >> {log}
+            echo "Generate PDFs: {params.generate_pdfs}" >> {log}
             echo "" >> {log}
             
-            # Create output directory
+            # Create custom parameters file
+            echo "Creating custom parameters file..." >> {log}
+            python3 -c "
+import json
+import sys
+
+# Custom parameters from Snakemake config
+custom_params = {params.custom_parameters}
+
+# Write to JSON file
+with open('{output.custom_params}', 'w') as f:
+    json.dump(custom_params, f, indent=2)
+
+print('Custom parameters saved to {output.custom_params}')
+if custom_params:
+    for tool, tool_params in custom_params.items():
+        if tool_params:  # Only show non-empty parameter lists
+            print(f'  {{tool}}: {{tool_params}}')
+else:
+    print('  Using optimized defaults (no custom parameters)')
+" 2>> {log}
+            
+            # Create output and log directories
             mkdir -p {params.output_dir}
+            mkdir -p {params.log_dir}/phylo_checkpoints
             
-            # Run phylogenetic analysis
-            python workflow/scripts/phylo_pipeline.py \
-                --database {input.db} \
-                --output-dir {params.output_dir} \
-                --min-otus {params.min_otus} \
-                {params.max_families_arg} \
-                --selection-strategy {params.selection_strategy} \
-                --num-outgroups {params.num_outgroups} \
-                --alignment-method {params.alignment_method} \
-                --tree-method {params.tree_method} \
-                --bootstrap {params.bootstrap} \
-                --threads {threads} \
-                --log-level {params.log_level} \
-                2>> {log}
+            # Check if batches exist
+            BATCH_SUMMARY=$(cat {input.summary})
+            TOTAL_BATCHES=$(echo "$BATCH_SUMMARY" | python3 -c "import sys, json; data=json.load(sys.stdin); print(data.get('total_batches', 0))")
             
-            if [ $? -eq 0 ]; then
-                echo "Phylogenetic analysis completed successfully" >> {log}
-                echo "End time: $(date)" >> {log}
+            if [ "$TOTAL_BATCHES" -eq 0 ]; then
+                echo "No batches to process - phylogenetic analysis skipped" >> {log}
                 touch {output.marker}
-            else
-                echo "ERROR: Phylogenetic analysis failed" >> {log}
+                exit 0
+            fi
+            
+            echo "Processing $TOTAL_BATCHES batches..." >> {log}
+            
+            # Determine array range
+            ARRAY_RANGE="1-$TOTAL_BATCHES%{params.max_concurrent}"
+            echo "SLURM array range: $ARRAY_RANGE" >> {log}
+            
+            # Submit SLURM job array
+            echo "Submitting SLURM job array..." >> {log}
+            
+            JOB_ID=$(sbatch \
+                --array=$ARRAY_RANGE \
+                --job-name=phylo_parallel \
+                --output={params.log_dir}/phylo_%A_%a.out \
+                --error={params.log_dir}/phylo_%A_%a.err \
+                --time={params.job_time} \
+                --mem={params.job_memory} \
+                --cpus-per-task=8 \
+                --partition={params.partition} \
+                workflow/scripts/phylo_array_job.sh \
+                {input.db} \
+                {input.batch_dir} \
+                {params.output_dir} \
+                {params.min_otus} \
+                {params.alignment_method} \
+                {params.tree_method} \
+                {params.bootstrap} \
+                {params.num_outgroups} \
+                {params.generate_pdfs} \
+                {output.custom_params} \
+                {params.log_dir} | awk '{{print $4}}')
+            
+            if [ -z "$JOB_ID" ]; then
+                echo "ERROR: Failed to submit SLURM job array" >> {log}
                 exit 1
             fi
+            
+            echo "Submitted job array with ID: $JOB_ID" >> {log}
+            
+            # Wait for job completion
+            echo "Waiting for job completion..." >> {log}
+            
+            while squeue -j $JOB_ID -h >/dev/null 2>&1; do
+                RUNNING=$(squeue -j $JOB_ID -h | wc -l)
+                echo "$(date): $RUNNING tasks still running..." >> {log}
+                sleep 60  # Check every minute
+            done
+            
+            echo "Job array completed at $(date)" >> {log}
+            
+            # Wait a bit for file system to catch up
+            sleep 30
+            
+            # Consolidate results
+            echo "Consolidating results..." >> {log}
+            
+            python workflow/scripts/consolidate_phylo_results.py \
+                {input.batch_dir} \
+                {params.output_dir} \
+                --output-file {params.output_dir}/phylogenetic_analysis_summary.json \
+                --failed-families-file {params.output_dir}/failed_families.txt \
+                2>> {log}
+            
+            echo "Phylogenetic analysis completed at $(date)" >> {log}
+            touch {output.marker}
         else
-            echo "Phylogenetic analysis disabled in configuration" > {log}
-            echo "Skipping phylogenetic analysis step" >> {log}
-            # Create empty marker file when disabled
+            echo "Phylogenetic analysis disabled" > {log}
+            echo '{{}}' > {output.custom_params}  # Create empty JSON file
             touch {output.marker}
         fi
         """
+
+# RANKING ETC
+# ===========
 
 rule create_ranks_schema:
     input:
         db=get_db_file(),
         otus_ok=f"{get_results_dir()}/otus_imported.ok",
         concatenated_ok=f"{get_results_dir()}/concatenated_imported.ok",
-        phylo_ok=f"{get_results_dir()}/phylogenetic_analysis_completed.ok" if config.get("PHYLO_ENABLED", False) else []
+        phylo_ok=f"{get_results_dir()}/phylogenetic_analysis_parallel_completed.ok" if config.get("PHYLO_ENABLED", False) else []
     output:
         f"{get_results_dir()}/schema_with_ranks_applied.ok"
     conda: "envs/sqlite.yaml"
@@ -1312,9 +1434,10 @@ rule split_families:
         """
 	
 rule compress_family_databases:
-    """Compress all family database files in parallel for storage efficiency"""
+    """Compress entire family directories (including databases, PDFs, and other files) in parallel for storage efficiency"""
     input:
-        families_split=f"{get_results_dir()}/families_split.ok"
+        families_split=f"{get_results_dir()}/families_split.ok",
+        phylo_integrated=f"{get_results_dir()}/phylogenetic_results_integrated.ok"
     output:
         marker=f"{get_results_dir()}/family_databases_compressed.ok",
         compression_report=f"{get_results_dir()}/family_databases/compression_report.txt"
@@ -1322,6 +1445,7 @@ rule compress_family_databases:
         source_dir=f"{get_results_dir()}/family_databases",
         output_dir=f"{get_results_dir()}/family_databases_compressed",
         workers=config.get("COMPRESSION_WORKERS", 16),
+        compression_mode=config.get("COMPRESSION_MODE", "family_directories"),  # New parameter
         log_dir=get_log_dir()
     log: f"{get_log_dir()}/compress_family_databases.log"
     conda: "envs/compress_databases.yaml"
@@ -1330,6 +1454,7 @@ rule compress_family_databases:
         """
         echo "=== Starting Family Database Compression ===" > {log}
         echo "Start time: $(date)" >> {log}
+        echo "Compression mode: {params.compression_mode}" >> {log}
         echo "Source directory: {params.source_dir}" >> {log}
         echo "Output directory: {params.output_dir}" >> {log}
         echo "Workers: {params.workers}" >> {log}
@@ -1338,34 +1463,45 @@ rule compress_family_databases:
         # Create output directory
         mkdir -p {params.output_dir}
         
-        # Run compression script
+        # Run compression script with specified mode
         python workflow/scripts/zip_databases.py \
             --source {params.source_dir} \
             --output {params.output_dir} \
             --log-dir {params.log_dir} \
             --workers {params.workers} \
+            --mode {params.compression_mode} \
             --extensions .db \
             2>> {log}
         
-        # Check if compression was successful
+        # Check if compression was successful based on compression mode
         COMPRESSED_COUNT=$(find {params.output_dir} -name "*.zip" | wc -l)
-        ORIGINAL_COUNT=$(find {params.source_dir} -name "*.db" | wc -l)
+        
+        if [ "{params.compression_mode}" = "family_directories" ]; then
+            # Count family directories containing .db files
+            ORIGINAL_COUNT=$(find {params.source_dir} -name "*.db" -exec dirname {{}} \; | sort -u | wc -l)
+            ITEM_TYPE="family directories"
+        else
+            # Count individual .db files (legacy mode)
+            ORIGINAL_COUNT=$(find {params.source_dir} -name "*.db" | wc -l)
+            ITEM_TYPE="database files"
+        fi
         
         echo "" >> {log}
         echo "Compression Summary:" >> {log}
-        echo "Original .db files: $ORIGINAL_COUNT" >> {log}
+        echo "Original $ITEM_TYPE: $ORIGINAL_COUNT" >> {log}
         echo "Compressed .zip files: $COMPRESSED_COUNT" >> {log}
         
         if [ "$COMPRESSED_COUNT" -eq "$ORIGINAL_COUNT" ]; then
-            echo "SUCCESS: All database files compressed successfully" >> {log}
+            echo "SUCCESS: All $ITEM_TYPE compressed successfully" >> {log}
             
-            # Generate compression report
+            # Generate compression report with enhanced details for family directories
             echo "Family Database Compression Report" > {output.compression_report}
             echo "=================================" >> {output.compression_report}
             echo "Completed: $(date)" >> {output.compression_report}
+            echo "Compression mode: {params.compression_mode}" >> {output.compression_report}
             echo "" >> {output.compression_report}
-            echo "Files processed: $ORIGINAL_COUNT" >> {output.compression_report}
-            echo "Files compressed: $COMPRESSED_COUNT" >> {output.compression_report}
+            echo "$ITEM_TYPE processed: $ORIGINAL_COUNT" >> {output.compression_report}
+            echo "Zip files created: $COMPRESSED_COUNT" >> {output.compression_report}
             echo "" >> {output.compression_report}
             
             # Calculate size savings
@@ -1378,6 +1514,42 @@ rule compress_family_databases:
                 echo "Space savings: $SAVINGS%" >> {output.compression_report}
             fi
             
+            # Add details about what's included in family directories
+            if [ "{params.compression_mode}" = "family_directories" ]; then
+                echo "" >> {output.compression_report}
+                echo "Family Directory Contents:" >> {output.compression_report}
+                
+                # Count different file types across all families
+                DB_COUNT=$(find {params.source_dir} -name "*.db" | wc -l)
+                PDF_COUNT=$(find {params.source_dir} -name "*.pdf" | wc -l)
+                JSON_COUNT=$(find {params.source_dir} -name "*.json" | wc -l)
+                OTHER_COUNT=$(find {params.source_dir} -type f ! -name "*.db" ! -name "*.pdf" ! -name "*.json" | wc -l)
+                
+                echo "- Database files (.db): $DB_COUNT" >> {output.compression_report}
+                echo "- PDF files (.pdf): $PDF_COUNT" >> {output.compression_report}
+                echo "- JSON files (.json): $JSON_COUNT" >> {output.compression_report}
+                echo "- Other files: $OTHER_COUNT" >> {output.compression_report}
+                
+                TOTAL_FILES=$((DB_COUNT + PDF_COUNT + JSON_COUNT + OTHER_COUNT))
+                echo "- Total files: $TOTAL_FILES" >> {output.compression_report}
+                
+                if [ "$ORIGINAL_COUNT" -gt 0 ]; then
+                    AVG_FILES=$(echo "scale=1; $TOTAL_FILES / $ORIGINAL_COUNT" | bc -l)
+                    echo "- Average files per family: $AVG_FILES" >> {output.compression_report}
+                fi
+                
+                # Show sample family structure
+                echo "" >> {output.compression_report}
+                echo "Sample family directory structure:" >> {output.compression_report}
+                SAMPLE_FAMILY=$(find {params.source_dir} -name "*.db" | head -1 | xargs dirname)
+                if [ -n "$SAMPLE_FAMILY" ]; then
+                    echo "$(basename "$SAMPLE_FAMILY"):" >> {output.compression_report}
+                    ls -la "$SAMPLE_FAMILY" | tail -n +2 | while read line; do
+                        echo "  $line" >> {output.compression_report}
+                    done
+                fi
+            fi
+            
             touch {output.marker}
         else
             echo "ERROR: Compression incomplete. Expected $ORIGINAL_COUNT, got $COMPRESSED_COUNT" >> {log}
@@ -1385,6 +1557,179 @@ rule compress_family_databases:
         fi
         
         echo "=== Compression Completed ===" >> {log}
+        echo "End time: $(date)" >> {log}
+        """
+
+rule integrate_phylogenetic_results:
+    """Recursively integrate phylogenies and curation checklists into family directories"""
+    input:
+        families_split=f"{get_results_dir()}/families_split.ok",
+        phylo_done=f"{get_results_dir()}/phylogenetic_analysis_parallel_completed.ok" if config.get("PHYLO_ENABLED", False) else []
+    output:
+        marker=f"{get_results_dir()}/phylogenetic_results_integrated.ok"
+    params:
+        phylo_source_dir=f"{get_results_dir()}/{config.get('PHYLO_OUTPUT_DIR', 'phylogenies')}",
+        family_db_dir=f"{get_results_dir()}/family_databases",
+        phylo_enabled=config.get("PHYLO_ENABLED", False)
+    log: f"{get_log_dir()}/integrate_phylogenetic_results.log"
+    shell:
+        """
+        echo "=== Starting Phylogenetic Results Integration ===" > {log}
+        echo "Start time: $(date)" >> {log}
+        echo "Phylogenies source: {params.phylo_source_dir}" >> {log}
+        echo "Family databases directory: {params.family_db_dir}" >> {log}
+        echo "Phylogenetic analysis enabled: {params.phylo_enabled}" >> {log}
+        echo "" >> {log}
+        
+        # Initialize counters
+        TOTAL_FAMILIES=0
+        PHYLO_MERGED=0
+        CURATION_MERGED=0
+        
+        # Function to extract family name from various sources
+        get_family_name() {{
+            local family_dir="$1"
+            local family_name=""
+            
+            # Try to get family name from directory name first
+            family_name=$(basename "$family_dir")
+            
+            # If directory has a .db file, extract family name from filename
+            if [ -z "$family_name" ] || [ "$family_name" = "." ]; then
+                db_file=$(find "$family_dir" -maxdepth 1 -name "*.db" | head -1)
+                if [ -n "$db_file" ]; then
+                    family_name=$(basename "$db_file" .db)
+                fi
+            fi
+            
+            echo "$family_name"
+        }}
+        
+        # Recursively find all directories containing .db files (family directories)
+        if [ -d "{params.family_db_dir}" ]; then
+            echo "Scanning for family directories containing .db files..." >> {log}
+            
+            # Create a temporary file to store family directories
+            TEMP_FAMILIES=$(mktemp)
+            find "{params.family_db_dir}" -name "*.db" -exec dirname {{}} \; | sort -u > "$TEMP_FAMILIES"
+            
+            # Count total families found
+            TOTAL_FAMILIES=$(wc -l < "$TEMP_FAMILIES")
+            echo "Found $TOTAL_FAMILIES family directories" >> {log}
+            
+            # Process each family directory
+            while IFS= read -r family_dir; do
+                if [ -d "$family_dir" ]; then
+                    # Extract family name
+                    family_name=$(get_family_name "$family_dir")
+                    
+                    if [ -n "$family_name" ] && [ "$family_name" != "." ]; then
+                        echo "Processing family: $family_name (in $family_dir)" >> {log}
+                        
+                        # Integration successful flag
+                        INTEGRATION_SUCCESS=false
+                        
+                        # Copy phylogeny files if they exist and phylo is enabled
+                        if [ "{params.phylo_enabled}" = "True" ] && [ -d "{params.phylo_source_dir}/$family_name" ]; then
+                            echo "  Integrating phylogeny files for $family_name" >> {log}
+                            
+                            # Create phylogenies subdirectory if it doesn't exist
+                            mkdir -p "$family_dir/phylogenies"
+                            
+                            # Copy all files from phylogenies source to family subdirectory
+                            if cp -r "{params.phylo_source_dir}/$family_name"/* "$family_dir/phylogenies/" 2>/dev/null; then
+                                PHYLO_MERGED=$((PHYLO_MERGED + 1))
+                                INTEGRATION_SUCCESS=true
+                                echo "  ✓ Successfully integrated phylogeny files" >> {log}
+                                
+                                # List what was copied
+                                echo "    Phylogeny files integrated:" >> {log}
+                                ls -la "$family_dir/phylogenies/" 2>/dev/null | while read line; do
+                                    echo "      $line" >> {log}
+                                done
+                            else
+                                echo "  ⚠ No phylogeny files found for $family_name" >> {log}
+                            fi
+                        else
+                            if [ "{params.phylo_enabled}" != "True" ]; then
+                                echo "  Phylogenetic analysis disabled, skipping phylogeny integration" >> {log}
+                            else
+                                echo "  No phylogeny directory found for $family_name" >> {log}
+                            fi
+                        fi
+                        
+                        # Copy curation checklists directly to family directory (not in subdirectory)
+                        if [ "{params.phylo_enabled}" = "True" ] && [ -d "{params.phylo_source_dir}/$family_name" ]; then
+                            # Look for curation checklist PDFs
+                            CURATION_FILES=$(find "{params.phylo_source_dir}/$family_name" -name "*curation_checklist.pdf" 2>/dev/null)
+                            
+                            if [ -n "$CURATION_FILES" ]; then
+                                echo "  Integrating curation checklist for $family_name" >> {log}
+                                
+                                # Copy curation checklists to family directory root
+                                echo "$CURATION_FILES" | while read curation_file; do
+                                    if [ -f "$curation_file" ]; then
+                                        cp "$curation_file" "$family_dir/" 2>/dev/null
+                                        echo "    ✓ Copied: $(basename "$curation_file")" >> {log}
+                                    fi
+                                done
+                                
+                                CURATION_MERGED=$((CURATION_MERGED + 1))
+                                INTEGRATION_SUCCESS=true
+                            else
+                                echo "  ⚠ No curation checklist found for $family_name" >> {log}
+                            fi
+                        fi
+                        
+                        # Log final directory contents for this family
+                        if [ "$INTEGRATION_SUCCESS" = "true" ]; then
+                            echo "    Final family directory contents:" >> {log}
+                            ls -la "$family_dir" | while read line; do
+                                echo "      $line" >> {log}
+                            done
+                        fi
+                    else
+                        echo "  Warning: Could not determine family name for directory: $family_dir" >> {log}
+                    fi
+                fi
+            done < "$TEMP_FAMILIES"
+            
+            # Clean up temporary file
+            rm -f "$TEMP_FAMILIES"
+        else
+            echo "ERROR: Family databases directory not found: {params.family_db_dir}" >> {log}
+            exit 1
+        fi
+        
+        echo "" >> {log}
+        echo "=== Integration Summary ===" >> {log}
+        echo "Total families processed: $TOTAL_FAMILIES" >> {log}
+        echo "Families with phylogenies integrated: $PHYLO_MERGED" >> {log}
+        echo "Families with curation checklists integrated: $CURATION_MERGED" >> {log}
+        
+        # Verify results
+        if [ "$TOTAL_FAMILIES" -gt 0 ]; then
+            echo "Phylogenetic results integration completed successfully" >> {log}
+            
+            # Create integration summary
+            echo "Integration Summary:" >> {log}
+            echo "  - Searched recursively in: {params.family_db_dir}" >> {log}
+            echo "  - Source phylogenies from: {params.phylo_source_dir}" >> {log}
+            echo "  - Families found: $TOTAL_FAMILIES" >> {log}
+            echo "  - Phylogenies integrated: $PHYLO_MERGED" >> {log}
+            echo "  - Curation checklists integrated: $CURATION_MERGED" >> {log}
+            
+            if [ "$PHYLO_MERGED" -gt 0 ] || [ "$CURATION_MERGED" -gt 0 ]; then
+                echo "  - Integration rate: $(echo "scale=1; ($PHYLO_MERGED + $CURATION_MERGED) * 50 / $TOTAL_FAMILIES" | bc -l)%" >> {log}
+            fi
+            
+            touch {output.marker}
+        else
+            echo "ERROR: No families found to process" >> {log}
+            exit 1
+        fi
+        
+        echo "=== Phylogenetic Results Integration Completed ===" >> {log}
         echo "End time: $(date)" >> {log}
         """
 
@@ -1605,10 +1950,11 @@ rule archive_final_results:
 # ==================
 
 rule all:
-    """Main pipeline target - produces final scored output and family databases"""
+    """Main pipeline target - produces final scored output and family databases with phylogenies"""
     input:
         f"{get_results_dir()}/result_output.tsv",
         f"{get_results_dir()}/families_split.ok",
+        f"{get_results_dir()}/phylogenetic_results_integrated.ok",
         f"{get_results_dir()}/family_databases_compressed.ok",
         f"{get_results_dir()}/country_representatives_selected.ok",
         f"{get_results_dir()}/stats_report_generated.ok",

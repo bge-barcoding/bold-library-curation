@@ -2,7 +2,6 @@
 #SBATCH --job-name=bold_family_split
 #SBATCH --output=logs/family_split_%A_%a.out
 #SBATCH --error=logs/family_split_%A_%a.err
-#SBATCH --time=04:00:00
 #SBATCH --mem=8G
 #SBATCH --cpus-per-task=4
 
