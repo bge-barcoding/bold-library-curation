@@ -112,9 +112,9 @@ PHYLO_FAMILIES_PER_JOB: null           # Fixed families per job (null = auto-dis
 PHYLO_MAX_CONCURRENT: 10               # Maximum concurrent jobs (controls %N in array)
 
 # SLURM resource allocation per job
-PHYLO_JOB_MEMORY: "32G"                # Memory per job
+PHYLO_JOB_MEMORY: "8G"                # Memory per job
 PHYLO_JOB_TIME: "24:00:00"             # Time limit per job (HH:MM:SS)
-PHYLO_PARTITION: "day"                # SLURM partition to use
+PHYLO_PARTITION: "medium"                # SLURM partition to use (medium/day)
 
 # Analysis methods
 PHYLO_ALIGNMENT_METHOD: "mafft"        # Alignment method: "mafft" or "muscle"

@@ -4,10 +4,11 @@
 #SBATCH --error=logs/phylo_%A_%a.err
 #SBATCH --array=1-50%10
 #SBATCH --cpus-per-task=8
-#SBATCH --mem=32G
+#SBATCH --mem=8G
 #SBATCH --time=24:00:00
-#SBATCH --partition=day
+#SBATCH --partition=medium
 
+# partitions day/medium or week/long (NHM/Crop)
 
 # Phylogenetic Analysis Parallel Job Array
 # =========================================
