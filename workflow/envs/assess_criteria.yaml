@@ -2,8 +2,6 @@ name: assess_criteria
 channels:
   - conda-forge
   - bioconda
-  - defaults
 dependencies:
   - perl-log-log4perl
-  - perl-bio-phylo-forest-dbtree
   - perl-text-csv

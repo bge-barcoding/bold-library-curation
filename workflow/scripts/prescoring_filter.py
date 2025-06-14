@@ -340,6 +340,39 @@ def expand_by_bin_sharing(initial_processids: Set[str], input_file: str) -> Set[
     return current_processids
 
 
+def filter_by_kingdom(input_file: str, kingdom_set: Set[str], kingdom_column: str) -> Set[str]:
+    """
+    Return set of processids matching the specified kingdoms.
+    
+    Args:
+        input_file: Path to input TSV file
+        kingdom_set: Set of kingdom names to match (case-insensitive)
+        kingdom_column: Name of kingdom column
+        
+    Returns:
+        Set of processids that match the kingdom criteria
+    """
+    matching_processids = set()
+    
+    with open(input_file, 'r', encoding='utf-8') as f:
+        reader = csv.DictReader(f, delimiter='\t')
+        
+        for row_num, row in enumerate(reader, 1):
+            if row_num % 10000 == 0:
+                logging.info(f"Kingdom filtering: processed {row_num} rows")
+                
+            kingdom_raw = row.get(kingdom_column, '') or ''
+            kingdom = kingdom_raw.strip() if kingdom_raw else ''
+            if kingdom and kingdom.lower() in kingdom_set:
+                processid_raw = row.get('processid', '') or ''
+                processid = processid_raw.strip() if processid_raw else ''
+                if processid:
+                    matching_processids.add(processid)
+    
+    logging.info(f"Kingdom filter matched {len(matching_processids)} processids")
+    return matching_processids
+
+
 def detect_column_names(input_file: str) -> Dict[str, str]:
     """
     Auto-detect column names in the TSV file.
@@ -380,6 +413,12 @@ def detect_column_names(input_file: str) -> Dict[str, str]:
             column_map['marker'] = col
             break
     
+    # Kingdom column detection
+    for col in headers:
+        if col.lower() in ['kingdom']:
+            column_map['kingdom'] = col
+            break
+    
     logging.info(f"Detected columns: {column_map}")
     return column_map
 
@@ -390,6 +429,7 @@ def prescoring_filter(
     taxa_list: Optional[str] = None,
     country_list: Optional[str] = None,
     marker_code: Optional[str] = None,
+    kingdom_list: Optional[list] = None,
     enable_bin_sharing: bool = False,
     filter_species: bool = False
 ) -> Dict[str, Any]:
@@ -402,6 +442,7 @@ def prescoring_filter(
         taxa_list: Path to taxa list file (optional)
         country_list: Path to country list file (optional)
         marker_code: Marker code to filter by (e.g., "COI-5P") (optional)
+        kingdom_list: List of kingdom names to filter by (optional)
         enable_bin_sharing: Whether to include BIN_URI sharing expansion
         
     Returns:
@@ -413,8 +454,8 @@ def prescoring_filter(
     if not Path(input_tsv).exists():
         raise FileNotFoundError(f"Input file not found: {input_tsv}")
     
-    if not taxa_list and not country_list and not marker_code:
-        raise ValueError("At least one filter (taxa_list, country_list, or marker_code) must be provided")
+    if not taxa_list and not country_list and not marker_code and not kingdom_list:
+        raise ValueError("At least one filter (taxa_list, country_list, marker_code, or kingdom_list) must be provided")
     
     # Auto-detect column names
     column_map = detect_column_names(input_tsv)
@@ -480,6 +521,22 @@ def prescoring_filter(
             logging.info(f"Using marker filter only: {len(matching_processids)} processids")
     elif marker_code:
         logging.warning("Marker code provided but marker column not found")
+    
+    # Apply kingdom filter at the end - this removes records that don't match the specified kingdoms
+    if kingdom_list and 'kingdom' in column_map:
+        kingdom_set = {k.lower() for k in kingdom_list}  # Convert to lowercase set
+        kingdom_matches = filter_by_kingdom(input_tsv, kingdom_set, column_map['kingdom'])
+        if matching_processids:
+            # Intersect final results with kingdom filter
+            before_kingdom_count = len(matching_processids)
+            matching_processids = matching_processids.intersection(kingdom_matches)
+            logging.info(f"Kingdom filter: {before_kingdom_count} -> {len(matching_processids)} processids")
+        else:
+            # If no other filters, use kingdom filter as the only filter
+            matching_processids = kingdom_matches
+            logging.info(f"Using kingdom filter only: {len(matching_processids)} processids")
+    elif kingdom_list:
+        logging.warning("Kingdom list provided but kingdom column not found")
     
     final_matches = len(matching_processids)
     
@@ -561,6 +618,7 @@ def prescoring_filter(
         'taxa_filter_used': bool(taxa_list),
         'country_filter_used': bool(country_list),
         'marker_filter_used': bool(marker_code),
+        'kingdom_filter_used': bool(kingdom_list),
         'bin_sharing_used': enable_bin_sharing
     }
     
@@ -603,6 +661,8 @@ Examples:
                         help='Country list file path (semicolon-separated format like taxa)')
     parser.add_argument('--marker',
                         help='Marker code to filter by (e.g., COI-5P)')
+    parser.add_argument('--kingdom-list', nargs='+',
+                        help='Kingdom names to filter by (e.g., --kingdom-list Animalia Plantae)')
     parser.add_argument('--enable-bin-sharing', action='store_true',
                         help='Include BIN_URI sharing expansion')
     parser.add_argument('--filter-species', action='store_true',
@@ -624,6 +684,7 @@ Examples:
             taxa_list=args.taxa_list,
             country_list=args.country_list,
             marker_code=args.marker,
+            kingdom_list=args.kingdom_list,
             enable_bin_sharing=args.enable_bin_sharing,
             filter_species=args.filter_species
         )

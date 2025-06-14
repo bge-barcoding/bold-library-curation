@@ -12,7 +12,7 @@ source ~/.bashrc
 conda activate bold-curation
 
 # Activate conda env (NHM)
-source activate bold-curation
+# source activate bold-curation
 
 # partitions
 # day / medium and week / long

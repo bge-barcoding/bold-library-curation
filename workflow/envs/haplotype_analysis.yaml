@@ -2,7 +2,6 @@ name: haplotype_analysis
 channels:
   - conda-forge
   - bioconda
-  - defaults
 dependencies:
   - perl=5.32.*        # Less restrictive
   - perl-dbi

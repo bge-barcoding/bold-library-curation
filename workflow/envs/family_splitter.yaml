@@ -1,7 +1,6 @@
 name: family_splitter
 channels:
   - conda-forge
-  - defaults
 dependencies:
   - nodejs>=16.0.0
   - sqlite>=3.30.0

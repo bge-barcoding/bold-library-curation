@@ -2,7 +2,7 @@ name: bold-curation
 channels:
   - conda-forge
   - bioconda
-  - defaults
+  
 dependencies:
   # Core Python and workflow management
   - python=3.10.*  # More stable for HPC systems
@@ -14,7 +14,6 @@ dependencies:
   
   # Core Perl dependencies (consolidate versions)
   - perl=5.32.*
-  - perl-bio-phylo-forest-dbtree
   - perl-text-csv_xs
   - perl-log-log4perl
   - perl-module-load
@@ -25,6 +24,13 @@ dependencies:
   - perl-dbi
   - perl-getopt-long
   - perl-time-hires
+  
+  # Build tools needed for compiling Perl XS modules
+  - gcc_linux-64
+  - gxx_linux-64
+  - make
+  
+  # Note: DBIx::Class modules will be installed via cpan after environment creation
   
   # Analysis tools
   - hmmer
@@ -39,7 +45,10 @@ dependencies:
   # ETE3 and dependencies for tree visualization (headless operation)
   - ete3=3.1.*     # Tree manipulation and PDF generation
   - pyqt=5.*       # GUI toolkit required by ETE3
-  - qt-main        # Qt platform plugins and main components
+  - qt-main=5.15.8 # Qt platform plugins and main components
+  - icu=73.2       # ICU version compatible with available packages
+  - libgd=2.3.3    # Graphics library (explicitly specify compatible version)
+  - libzlib=1.2.*  # Zlib version compatible with vsearch
   - xorg-libx11    # Core X11 library
   - xorg-libxext   # X11 extension library for headless operation
   - xorg-libxrender # X11 render extension
@@ -49,7 +58,7 @@ dependencies:
  
   
   # OTU clustering tools (pin versions for reproducibility)
-  - vsearch=2.22.1
+  - vsearch=2.21.*  # Use slightly older version to avoid libzlib conflicts
   - cd-hit=4.8.1
   
   # Python packages for compatibility
@@ -63,3 +72,4 @@ dependencies:
   - psutil=5.8.*     # System monitoring
   - scipy=1.7.*      # Scientific computing (compatible with numpy 1.21)
   - reportlab        # PDF curation checklist
+  - pip              # For installing packages not available via conda
