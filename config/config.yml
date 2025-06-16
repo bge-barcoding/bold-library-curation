@@ -138,5 +138,13 @@ PHYLO_CUSTOM_PARAMETERS:
   fasttree: []                    # Additional FastTree parameters: ["-slow"] for higher accuracy
   iqtree: ["--fast", "-m", "GTR+I+G"]   # Fast mode with GTR+I+G model for COI sequences
 
+# Phylogenetic Analysis Outgroup Settings
+PHYLO_OUTGROUP_STRATEGY: "hierarchical"  # Options: "strict", "hierarchical"
+PHYLO_MIN_OUTGROUPS: 1                   # Minimum outgroups required (was effectively 3)
+PHYLO_PREFERRED_OUTGROUPS: 3             # Preferred number of outgroups
+PHYLO_MAX_CLASS_ORDERS: 3                # Maximum orders to search within class
+PHYLO_ENABLE_CLASS_FALLBACK: true        # Enable class-level outgroup search
+PHYLO_OUTGROUP_DIVERSITY_PRIORITY: true  # Prioritize taxonomic diversity in outgroup selection
+
 # Note: Output paths are dynamically constructed using RESULTS_DIR and LOG_DIR 
 # in the Snakefile helper functions. Directories are created automatically.

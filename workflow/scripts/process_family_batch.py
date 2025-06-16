@@ -257,14 +257,20 @@ def create_family_database(family_info, source_db, output_dir, threshold, logger
         
         # Test database connection first
         try:
-            conn = sqlite3.connect(source_db, timeout=30.0)  # 30 second timeout
+            # Use read-only connection for better concurrency
+            readonly_uri = f"file:{source_db}?mode=ro&cache=shared"
+            conn = sqlite3.connect(readonly_uri, uri=True, timeout=60.0)
             
             # Set text factory to handle encoding issues
             conn.text_factory = lambda x: x.decode('utf-8', errors='replace') if isinstance(x, bytes) else str(x) if x is not None else None
             
+            # Optimize for read-only concurrent access
+            conn.execute("PRAGMA query_only = 1")
             conn.execute("PRAGMA temp_store = MEMORY")
             conn.execute("PRAGMA mmap_size = 268435456")
             conn.execute("PRAGMA cache_size = -64000")
+            conn.execute("PRAGMA read_uncommitted = 1")
+            conn.execute("PRAGMA busy_timeout = 60000")
             cursor = conn.cursor()
         except sqlite3.Error as e:
             if retry_count < 3:
@@ -345,18 +351,21 @@ def create_family_database(family_info, source_db, output_dir, threshold, logger
 def create_single_family_db(family_info, source_db, output_file, logger):
     """Create database for a single family using complete processed result data"""
     try:
-        # Connect to source database with encoding handling
-        source_conn = sqlite3.connect(source_db, timeout=30.0)  # 30 second timeout
+        # Connect to source database with read-only mode for better concurrency
+        readonly_uri = f"file:{source_db}?mode=ro&cache=shared"
+        source_conn = sqlite3.connect(readonly_uri, uri=True, timeout=60.0)
         
         # Set text factory to handle encoding issues
         source_conn.text_factory = lambda x: x.decode('utf-8', errors='replace') if isinstance(x, bytes) else str(x) if x is not None else None
         source_conn.row_factory = row_factory_with_encoding
         
-        # Optimize source connection for reading
+        # Optimize source connection for read-only access
+        source_conn.execute("PRAGMA query_only = 1")
         source_conn.execute("PRAGMA temp_store = MEMORY")
         source_conn.execute("PRAGMA mmap_size = 268435456")  # 256MB memory mapping
         source_conn.execute("PRAGMA cache_size = -64000")   # 64MB cache
         source_conn.execute("PRAGMA read_uncommitted = 1")  # Allow dirty reads for performance
+        source_conn.execute("PRAGMA busy_timeout = 60000")  # 60 second busy timeout
         
         # Use the complete ranking query (same as ranking_with_stored_ranks_otu.sql)
         ranking_query = get_complete_ranking_query()
@@ -446,18 +455,21 @@ def create_single_family_db(family_info, source_db, output_file, logger):
 def create_subfamily_db(family_info, subfamily, source_db, output_file, logger):
     """Create database for a specific subfamily using complete processed result data"""
     try:
-        # Connect to source database with encoding handling
-        source_conn = sqlite3.connect(source_db, timeout=30.0)  # 30 second timeout
+        # Connect to source database with read-only mode for better concurrency
+        readonly_uri = f"file:{source_db}?mode=ro&cache=shared"
+        source_conn = sqlite3.connect(readonly_uri, uri=True, timeout=60.0)
         
         # Set text factory to handle encoding issues
         source_conn.text_factory = lambda x: x.decode('utf-8', errors='replace') if isinstance(x, bytes) else str(x) if x is not None else None
         source_conn.row_factory = row_factory_with_encoding
         
-        # Optimize source connection for reading
+        # Optimize source connection for read-only access
+        source_conn.execute("PRAGMA query_only = 1")
         source_conn.execute("PRAGMA temp_store = MEMORY")
         source_conn.execute("PRAGMA mmap_size = 268435456")  # 256MB memory mapping
         source_conn.execute("PRAGMA cache_size = -64000")   # 64MB cache
         source_conn.execute("PRAGMA read_uncommitted = 1")  # Allow dirty reads for performance
+        source_conn.execute("PRAGMA busy_timeout = 60000")  # 60 second busy timeout
         
         # Use the complete ranking query with subfamily filter
         ranking_query = get_complete_ranking_query()
