@@ -612,9 +612,9 @@ class PhylogeneticPipeline:
         """Fallback method: find outgroups from other orders in the same class."""
         # Get the class for this order
         class_query = """
-        SELECT DISTINCT t.class
-        FROM taxa t
-        WHERE t.name = ? AND t.level = 'order'
+        SELECT DISTINCT b.`class`
+        FROM bold b
+        WHERE b.`order` = ?
         LIMIT 1
         """
         
@@ -628,10 +628,10 @@ class PhylogeneticPipeline:
             
             # Get other orders in the same class
             orders_query = """
-            SELECT DISTINCT t.name as order_name
-            FROM taxa t
-            WHERE t.class = ? AND t.level = 'order' AND t.name != ?
-            ORDER BY t.name LIMIT 3
+            SELECT DISTINCT b.`order` as order_name
+            FROM bold b
+            WHERE b.`class` = ? AND b.`order` != ?
+            ORDER BY b.`order` LIMIT 3
             """
             
             orders_result = self.execute_with_retry(orders_query, [target_class, family_order])
