@@ -1452,8 +1452,7 @@ rule compress_family_databases:
         families_split=f"{get_results_dir()}/families_split.ok",
         phylo_integrated=f"{get_results_dir()}/phylogenetic_results_integrated.ok"
     output:
-        marker=f"{get_results_dir()}/family_databases_compressed.ok",
-        compression_report=f"{get_results_dir()}/family_databases/compression_report.txt"
+        marker=f"{get_results_dir()}/family_databases_compressed.ok"
     params:
         source_dir=f"{get_results_dir()}/family_databases",
         output_dir=f"{get_results_dir()}/family_databases_compressed",
@@ -1506,62 +1505,6 @@ rule compress_family_databases:
         
         if [ "$COMPRESSED_COUNT" -eq "$ORIGINAL_COUNT" ]; then
             echo "SUCCESS: All $ITEM_TYPE compressed successfully" >> {log}
-            
-            # Generate compression report with enhanced details for family directories
-            echo "Family Database Compression Report" > {output.compression_report}
-            echo "=================================" >> {output.compression_report}
-            echo "Completed: $(date)" >> {output.compression_report}
-            echo "Compression mode: {params.compression_mode}" >> {output.compression_report}
-            echo "" >> {output.compression_report}
-            echo "$ITEM_TYPE processed: $ORIGINAL_COUNT" >> {output.compression_report}
-            echo "Zip files created: $COMPRESSED_COUNT" >> {output.compression_report}
-            echo "" >> {output.compression_report}
-            
-            # Calculate size savings
-            ORIGINAL_SIZE=$(du -sb {params.source_dir} | cut -f1)
-            COMPRESSED_SIZE=$(du -sb {params.output_dir} | cut -f1)
-            if [ "$ORIGINAL_SIZE" -gt 0 ]; then
-                SAVINGS=$(echo "scale=1; (1 - $COMPRESSED_SIZE / $ORIGINAL_SIZE) * 100" | bc -l)
-                echo "Original size: $(numfmt --to=iec $ORIGINAL_SIZE)" >> {output.compression_report}
-                echo "Compressed size: $(numfmt --to=iec $COMPRESSED_SIZE)" >> {output.compression_report}
-                echo "Space savings: $SAVINGS%" >> {output.compression_report}
-            fi
-            
-            # Add details about what's included in family directories
-            if [ "{params.compression_mode}" = "family_directories" ]; then
-                echo "" >> {output.compression_report}
-                echo "Family Directory Contents:" >> {output.compression_report}
-                
-                # Count different file types across all families
-                DB_COUNT=$(find {params.source_dir} -name "*.db" | wc -l)
-                PDF_COUNT=$(find {params.source_dir} -name "*.pdf" | wc -l)
-                JSON_COUNT=$(find {params.source_dir} -name "*.json" | wc -l)
-                OTHER_COUNT=$(find {params.source_dir} -type f ! -name "*.db" ! -name "*.pdf" ! -name "*.json" | wc -l)
-                
-                echo "- Database files (.db): $DB_COUNT" >> {output.compression_report}
-                echo "- PDF files (.pdf): $PDF_COUNT" >> {output.compression_report}
-                echo "- JSON files (.json): $JSON_COUNT" >> {output.compression_report}
-                echo "- Other files: $OTHER_COUNT" >> {output.compression_report}
-                
-                TOTAL_FILES=$((DB_COUNT + PDF_COUNT + JSON_COUNT + OTHER_COUNT))
-                echo "- Total files: $TOTAL_FILES" >> {output.compression_report}
-                
-                if [ "$ORIGINAL_COUNT" -gt 0 ]; then
-                    AVG_FILES=$(echo "scale=1; $TOTAL_FILES / $ORIGINAL_COUNT" | bc -l)
-                    echo "- Average files per family: $AVG_FILES" >> {output.compression_report}
-                fi
-                
-                # Show sample family structure
-                echo "" >> {output.compression_report}
-                echo "Sample family directory structure:" >> {output.compression_report}
-                SAMPLE_FAMILY=$(find {params.source_dir} -name "*.db" | head -1 | xargs dirname)
-                if [ -n "$SAMPLE_FAMILY" ]; then
-                    echo "$(basename "$SAMPLE_FAMILY"):" >> {output.compression_report}
-                    ls -la "$SAMPLE_FAMILY" | tail -n +2 | while read line; do
-                        echo "  $line" >> {output.compression_report}
-                    done
-                fi
-            fi
             
             touch {output.marker}
         else
