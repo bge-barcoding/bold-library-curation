@@ -2,11 +2,9 @@ name: assess_images
 channels:
   - conda-forge
   - bioconda
-  - defaults
 dependencies:
   - perl=5.32.*
   - perl-log-log4perl
-  - perl-bio-phylo-forest-dbtree
   - perl-json
   - perl-libwww-perl
   - perl-text-csv

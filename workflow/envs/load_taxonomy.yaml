@@ -2,7 +2,5 @@ name: load_taxonomy
 channels:
   - conda-forge
   - bioconda
-  - defaults
 dependencies:
   - perl-log-log4perl
-  - perl-bio-phylo-forest-dbtree

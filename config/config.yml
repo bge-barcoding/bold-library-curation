@@ -28,6 +28,8 @@ FILTER_COUNTRIES: true  # true / false
 FILTER_COUNTRY_LIST: "resources/countries/test_odonata.txt"
 FILTER_BINS: true  # Include BIN_URI sharing true / false
 FILTER_SPECIES: true  # Only include records with valid species names (not null, empty, or "None") true / false
+FILTER_KINGDOM: true  # true / false
+FILTER_KINGDOM_LIST: ["Animalia"]  # List of kingdoms to include
 MARKER: "COI-5P"  # Specify marker code (e.g., "COI-5P") to filter by marker_code field, or null to disable marker filtering
 PRESCORING_FILTERED_OUTPUT: "test_odonata_large_filtered.tsv"  # Filename only - will be placed in RESULTS_DIR
 
@@ -135,6 +137,14 @@ PHYLO_CUSTOM_PARAMETERS:
   mafft: ["--quiet", "--adjustdirection", "--op", "10.0", "--ep", "1.0", "--maxiterate", "1000"]  # High gap penalties for COI - discourages spurious gaps
   fasttree: []                    # Additional FastTree parameters: ["-slow"] for higher accuracy
   iqtree: ["--fast", "-m", "GTR+I+G"]   # Fast mode with GTR+I+G model for COI sequences
+
+# Phylogenetic Analysis Outgroup Settings
+PHYLO_OUTGROUP_STRATEGY: "hierarchical"  # Options: "strict", "hierarchical"
+PHYLO_MIN_OUTGROUPS: 1                   # Minimum outgroups required (was effectively 3)
+PHYLO_PREFERRED_OUTGROUPS: 3             # Preferred number of outgroups
+PHYLO_MAX_CLASS_ORDERS: 3                # Maximum orders to search within class
+PHYLO_ENABLE_CLASS_FALLBACK: true        # Enable class-level outgroup search
+PHYLO_OUTGROUP_DIVERSITY_PRIORITY: true  # Prioritize taxonomic diversity in outgroup selection
 
 # Note: Output paths are dynamically constructed using RESULTS_DIR and LOG_DIR 
 # in the Snakefile helper functions. Directories are created automatically.

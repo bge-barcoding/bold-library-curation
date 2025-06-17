@@ -1,7 +1,6 @@
 name: parallel_family_split
 channels:
   - conda-forge
-  - defaults
 dependencies:
   - python=3.9
   - sqlite

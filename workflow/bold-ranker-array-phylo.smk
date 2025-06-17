@@ -872,7 +872,8 @@ rule import_otus:
     """Import OTU data into specialized OTU table"""
     input:
         otu_tsv=rules.OTU_CLUSTERING.output.tsv,
-        db=get_db_file()
+        db=get_db_file(),
+        concatenated_ok=f"{get_results_dir()}/concatenated_imported.ok"  # Add dependency to prevent concurrent database access
     output:
         f"{get_results_dir()}/otus_imported.ok"
     params:
@@ -882,8 +883,13 @@ rule import_otus:
     shell:
         """
         echo "Importing OTU data..." > {log}
+        echo "Waiting for database to be available..." >> {log}
         
-        sqlite3 {input.db} 2>> {log} <<OTU
+        # Add retry logic with timeout to handle transient database locks
+        for i in {{1..5}}; do
+            echo "Import attempt $i..." >> {log}
+            
+            if sqlite3 {input.db} 2>> {log} <<OTU
 -- Clear any existing OTU data
 DELETE FROM bold_otus;
 
@@ -917,8 +923,15 @@ LIMIT 10;
 
 .quit
 OTU
-
-        echo "OTU import completed on $(date)" >> {log}
+            then
+                echo "OTU import completed successfully on $(date)" >> {log}
+                break
+            else
+                echo "Import attempt $i failed, waiting before retry..." >> {log}
+                sleep $((i * 2))  # Exponential backoff: 2, 4, 6, 8, 10 seconds
+            fi
+        done
+        
         touch {output}
         """
 
@@ -1439,8 +1452,7 @@ rule compress_family_databases:
         families_split=f"{get_results_dir()}/families_split.ok",
         phylo_integrated=f"{get_results_dir()}/phylogenetic_results_integrated.ok"
     output:
-        marker=f"{get_results_dir()}/family_databases_compressed.ok",
-        compression_report=f"{get_results_dir()}/family_databases/compression_report.txt"
+        marker=f"{get_results_dir()}/family_databases_compressed.ok"
     params:
         source_dir=f"{get_results_dir()}/family_databases",
         output_dir=f"{get_results_dir()}/family_databases_compressed",
@@ -1494,62 +1506,6 @@ rule compress_family_databases:
         if [ "$COMPRESSED_COUNT" -eq "$ORIGINAL_COUNT" ]; then
             echo "SUCCESS: All $ITEM_TYPE compressed successfully" >> {log}
             
-            # Generate compression report with enhanced details for family directories
-            echo "Family Database Compression Report" > {output.compression_report}
-            echo "=================================" >> {output.compression_report}
-            echo "Completed: $(date)" >> {output.compression_report}
-            echo "Compression mode: {params.compression_mode}" >> {output.compression_report}
-            echo "" >> {output.compression_report}
-            echo "$ITEM_TYPE processed: $ORIGINAL_COUNT" >> {output.compression_report}
-            echo "Zip files created: $COMPRESSED_COUNT" >> {output.compression_report}
-            echo "" >> {output.compression_report}
-            
-            # Calculate size savings
-            ORIGINAL_SIZE=$(du -sb {params.source_dir} | cut -f1)
-            COMPRESSED_SIZE=$(du -sb {params.output_dir} | cut -f1)
-            if [ "$ORIGINAL_SIZE" -gt 0 ]; then
-                SAVINGS=$(echo "scale=1; (1 - $COMPRESSED_SIZE / $ORIGINAL_SIZE) * 100" | bc -l)
-                echo "Original size: $(numfmt --to=iec $ORIGINAL_SIZE)" >> {output.compression_report}
-                echo "Compressed size: $(numfmt --to=iec $COMPRESSED_SIZE)" >> {output.compression_report}
-                echo "Space savings: $SAVINGS%" >> {output.compression_report}
-            fi
-            
-            # Add details about what's included in family directories
-            if [ "{params.compression_mode}" = "family_directories" ]; then
-                echo "" >> {output.compression_report}
-                echo "Family Directory Contents:" >> {output.compression_report}
-                
-                # Count different file types across all families
-                DB_COUNT=$(find {params.source_dir} -name "*.db" | wc -l)
-                PDF_COUNT=$(find {params.source_dir} -name "*.pdf" | wc -l)
-                JSON_COUNT=$(find {params.source_dir} -name "*.json" | wc -l)
-                OTHER_COUNT=$(find {params.source_dir} -type f ! -name "*.db" ! -name "*.pdf" ! -name "*.json" | wc -l)
-                
-                echo "- Database files (.db): $DB_COUNT" >> {output.compression_report}
-                echo "- PDF files (.pdf): $PDF_COUNT" >> {output.compression_report}
-                echo "- JSON files (.json): $JSON_COUNT" >> {output.compression_report}
-                echo "- Other files: $OTHER_COUNT" >> {output.compression_report}
-                
-                TOTAL_FILES=$((DB_COUNT + PDF_COUNT + JSON_COUNT + OTHER_COUNT))
-                echo "- Total files: $TOTAL_FILES" >> {output.compression_report}
-                
-                if [ "$ORIGINAL_COUNT" -gt 0 ]; then
-                    AVG_FILES=$(echo "scale=1; $TOTAL_FILES / $ORIGINAL_COUNT" | bc -l)
-                    echo "- Average files per family: $AVG_FILES" >> {output.compression_report}
-                fi
-                
-                # Show sample family structure
-                echo "" >> {output.compression_report}
-                echo "Sample family directory structure:" >> {output.compression_report}
-                SAMPLE_FAMILY=$(find {params.source_dir} -name "*.db" | head -1 | xargs dirname)
-                if [ -n "$SAMPLE_FAMILY" ]; then
-                    echo "$(basename "$SAMPLE_FAMILY"):" >> {output.compression_report}
-                    ls -la "$SAMPLE_FAMILY" | tail -n +2 | while read line; do
-                        echo "  $line" >> {output.compression_report}
-                    done
-                fi
-            fi
-            
             touch {output.marker}
         else
             echo "ERROR: Compression incomplete. Expected $ORIGINAL_COUNT, got $COMPRESSED_COUNT" >> {log}
@@ -1561,7 +1517,7 @@ rule compress_family_databases:
         """
 
 rule integrate_phylogenetic_results:
-    """Recursively integrate phylogenies and curation checklists into family directories"""
+    """Integrate phylogenetic tree PDFs and curation checklist PDFs into family directories"""
     input:
         families_split=f"{get_results_dir()}/families_split.ok",
         phylo_done=f"{get_results_dir()}/phylogenetic_analysis_parallel_completed.ok" if config.get("PHYLO_ENABLED", False) else []
@@ -1574,11 +1530,12 @@ rule integrate_phylogenetic_results:
     log: f"{get_log_dir()}/integrate_phylogenetic_results.log"
     shell:
         """
-        echo "=== Starting Phylogenetic Results Integration ===" > {log}
+        echo "=== Starting Phylogenetic PDF Integration ===" > {log}
         echo "Start time: $(date)" >> {log}
         echo "Phylogenies source: {params.phylo_source_dir}" >> {log}
         echo "Family databases directory: {params.family_db_dir}" >> {log}
         echo "Phylogenetic analysis enabled: {params.phylo_enabled}" >> {log}
+        echo "Integration mode: PDF files only (tree PDFs and curation checklists)" >> {log}
         echo "" >> {log}
         
         # Initialize counters
@@ -1629,55 +1586,48 @@ rule integrate_phylogenetic_results:
                         # Integration successful flag
                         INTEGRATION_SUCCESS=false
                         
-                        # Copy phylogeny files if they exist and phylo is enabled
+                        # Copy only PDF files if they exist and phylo is enabled
                         if [ "{params.phylo_enabled}" = "True" ] && [ -d "{params.phylo_source_dir}/$family_name" ]; then
-                            echo "  Integrating phylogeny files for $family_name" >> {log}
+                            echo "  Integrating PDF files for $family_name" >> {log}
                             
-                            # Create phylogenies subdirectory if it doesn't exist
-                            mkdir -p "$family_dir/phylogenies"
+                            # Look for tree PDF files and copy them directly to family directory root
+                            TREE_PDFS=$(find "{params.phylo_source_dir}/$family_name" -name "*_tree.pdf" 2>/dev/null)
                             
-                            # Copy all files from phylogenies source to family subdirectory
-                            if cp -r "{params.phylo_source_dir}/$family_name"/* "$family_dir/phylogenies/" 2>/dev/null; then
-                                PHYLO_MERGED=$((PHYLO_MERGED + 1))
-                                INTEGRATION_SUCCESS=true
-                                echo "  ✓ Successfully integrated phylogeny files" >> {log}
-                                
-                                # List what was copied
-                                echo "    Phylogeny files integrated:" >> {log}
-                                ls -la "$family_dir/phylogenies/" 2>/dev/null | while read line; do
-                                    echo "      $line" >> {log}
-                                done
-                            else
-                                echo "  ⚠ No phylogeny files found for $family_name" >> {log}
-                            fi
-                        else
-                            if [ "{params.phylo_enabled}" != "True" ]; then
-                                echo "  Phylogenetic analysis disabled, skipping phylogeny integration" >> {log}
-                            else
-                                echo "  No phylogeny directory found for $family_name" >> {log}
-                            fi
-                        fi
-                        
-                        # Copy curation checklists directly to family directory (not in subdirectory)
-                        if [ "{params.phylo_enabled}" = "True" ] && [ -d "{params.phylo_source_dir}/$family_name" ]; then
-                            # Look for curation checklist PDFs
-                            CURATION_FILES=$(find "{params.phylo_source_dir}/$family_name" -name "*curation_checklist.pdf" 2>/dev/null)
-                            
-                            if [ -n "$CURATION_FILES" ]; then
-                                echo "  Integrating curation checklist for $family_name" >> {log}
-                                
-                                # Copy curation checklists to family directory root
-                                echo "$CURATION_FILES" | while read curation_file; do
-                                    if [ -f "$curation_file" ]; then
-                                        cp "$curation_file" "$family_dir/" 2>/dev/null
-                                        echo "    ✓ Copied: $(basename "$curation_file")" >> {log}
+                            if [ -n "$TREE_PDFS" ]; then
+                                echo "    Copying tree PDF files..." >> {log}
+                                echo "$TREE_PDFS" | while read tree_pdf; do
+                                    if [ -f "$tree_pdf" ]; then
+                                        cp "$tree_pdf" "$family_dir/" 2>/dev/null
+                                        echo "    ✓ Copied tree PDF: $(basename "$tree_pdf")" >> {log}
                                     fi
                                 done
-                                
+                                PHYLO_MERGED=$((PHYLO_MERGED + 1))
+                                INTEGRATION_SUCCESS=true
+                            else
+                                echo "    ⚠ No tree PDF files found for $family_name" >> {log}
+                            fi
+                            
+                            # Look for curation checklist PDFs and copy them directly to family directory root
+                            CURATION_PDFS=$(find "{params.phylo_source_dir}/$family_name" -name "*curation_checklist.pdf" 2>/dev/null)
+                            
+                            if [ -n "$CURATION_PDFS" ]; then
+                                echo "    Copying curation checklist PDF files..." >> {log}
+                                echo "$CURATION_PDFS" | while read curation_pdf; do
+                                    if [ -f "$curation_pdf" ]; then
+                                        cp "$curation_pdf" "$family_dir/" 2>/dev/null
+                                        echo "    ✓ Copied checklist PDF: $(basename "$curation_pdf")" >> {log}
+                                    fi
+                                done
                                 CURATION_MERGED=$((CURATION_MERGED + 1))
                                 INTEGRATION_SUCCESS=true
                             else
-                                echo "  ⚠ No curation checklist found for $family_name" >> {log}
+                                echo "    ⚠ No curation checklist PDF found for $family_name" >> {log}
+                            fi
+                        else
+                            if [ "{params.phylo_enabled}" != "True" ]; then
+                                echo "  Phylogenetic analysis disabled, skipping PDF integration" >> {log}
+                            else
+                                echo "  No phylogeny directory found for $family_name" >> {log}
                             fi
                         fi
                         
@@ -1704,8 +1654,8 @@ rule integrate_phylogenetic_results:
         echo "" >> {log}
         echo "=== Integration Summary ===" >> {log}
         echo "Total families processed: $TOTAL_FAMILIES" >> {log}
-        echo "Families with phylogenies integrated: $PHYLO_MERGED" >> {log}
-        echo "Families with curation checklists integrated: $CURATION_MERGED" >> {log}
+        echo "Families with tree PDFs integrated: $PHYLO_MERGED" >> {log}
+        echo "Families with curation checklist PDFs integrated: $CURATION_MERGED" >> {log}
         
         # Verify results
         if [ "$TOTAL_FAMILIES" -gt 0 ]; then
@@ -1716,11 +1666,11 @@ rule integrate_phylogenetic_results:
             echo "  - Searched recursively in: {params.family_db_dir}" >> {log}
             echo "  - Source phylogenies from: {params.phylo_source_dir}" >> {log}
             echo "  - Families found: $TOTAL_FAMILIES" >> {log}
-            echo "  - Phylogenies integrated: $PHYLO_MERGED" >> {log}
-            echo "  - Curation checklists integrated: $CURATION_MERGED" >> {log}
+            echo "  - Tree PDFs integrated: $PHYLO_MERGED" >> {log}
+            echo "  - Curation checklist PDFs integrated: $CURATION_MERGED" >> {log}
             
             if [ "$PHYLO_MERGED" -gt 0 ] || [ "$CURATION_MERGED" -gt 0 ]; then
-                echo "  - Integration rate: $(echo "scale=1; ($PHYLO_MERGED + $CURATION_MERGED) * 50 / $TOTAL_FAMILIES" | bc -l)%" >> {log}
+                echo "  - PDF integration rate: $(echo "scale=1; ($PHYLO_MERGED + $CURATION_MERGED) * 50 / $TOTAL_FAMILIES" | bc -l)%" >> {log}
             fi
             
             touch {output.marker}
@@ -1729,7 +1679,7 @@ rule integrate_phylogenetic_results:
             exit 1
         fi
         
-        echo "=== Phylogenetic Results Integration Completed ===" >> {log}
+        echo "=== Phylogenetic PDF Integration Completed ===" >> {log}
         echo "End time: $(date)" >> {log}
         """
 

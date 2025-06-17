@@ -4,8 +4,14 @@ Phylogenetic Analysis Pipeline for BOLD Database
 ================================================
 
 This script generates phylogenies for each family using species-BIN representatives,
-with outgroups selected from other families within the same order.
+with enhanced outgroups selection using hierarchical fallback strategy.
 Includes BAGS grade analysis, Grade C monophyly checking, and curation checklists.
+
+Enhanced Outgroup Selection:
+1. Primary: Find outgroups from other families within the same taxonomic order
+2. Fallback: If insufficient outgroups found, expand to other orders within the same class
+3. Flexible: Accept 1-2 outgroups instead of requiring 3 when necessary
+4. This enhancement should recover most previously failed families due to outgroup limitations
 
 Requirements:
 - biopython
@@ -539,7 +545,12 @@ class PhylogeneticPipeline:
 
     def get_outgroups_optimized(self, family_order, family_name, num_outgroups=3):
         """
-        Select outgroup sequences from other families in the same order.
+        Enhanced outgroup selection with hierarchical fallback strategy.
+        
+        Strategy:
+        1. Try to find outgroups from other families in the same order
+        2. If insufficient, expand to other orders in the same class
+        3. Accept 1-2 outgroups if 3 cannot be found
         
         Args:
             family_order (str): Order of the target family
@@ -549,58 +560,243 @@ class PhylogeneticPipeline:
         Returns:
             pandas.DataFrame: Outgroup sequences
         """
+        print(f"   Searching for outgroups for {family_name} (Order: {family_order})")
+        
+        # Step 1: Try original method - same order, different families
+        outgroups_df = self._get_outgroups_same_order(family_order, family_name, num_outgroups)
+        
+        # Accept fewer outgroups if available
+        min_outgroups = max(1, min(2, num_outgroups))
+        if len(outgroups_df) >= min_outgroups:
+            print(f"   Found {len(outgroups_df)} outgroups from same order ({family_order})")
+            return outgroups_df
+        
+        print(f"   Insufficient outgroups in order {family_order} ({len(outgroups_df)} found)")
+        
+        # Step 2: Expand to other orders in the same class
+        class_outgroups_df = self._get_outgroups_same_class(family_order, family_name, num_outgroups)
+        
+        # Combine same-order and class-level outgroups
+        combined_outgroups = self._combine_outgroup_sources(outgroups_df, class_outgroups_df, num_outgroups)
+        
+        if len(combined_outgroups) >= 1:
+            print(f"   Found {len(combined_outgroups)} outgroups using class-level expansion")
+            return combined_outgroups
+        
+        print(f"   No suitable outgroups found for {family_name}")
+        return pd.DataFrame()
+    
+    def _get_outgroups_same_order(self, family_order, family_name, num_outgroups):
+        """Original method: find outgroups from other families in same order."""
         query = """
         SELECT DISTINCT
-            b.nuc,
-            b.genus,
-            b.species,
-            b.processid,
-            b.recordid,
-            b.bin_uri,
-            b.family
+            b.nuc, b.genus, b.species, b.processid, b.recordid, b.bin_uri, b.family,
+            'same_order' as outgroup_source
         FROM bold b
-        WHERE b.`order` = ?
-            AND b.family != ?
-            AND b.family IS NOT NULL
-            AND b.nuc IS NOT NULL 
-            AND LENGTH(b.nuc) > 200
-            AND b.genus IS NOT NULL
-            AND b.species IS NOT NULL
-            AND b.bin_uri IS NOT NULL
-            AND b.bin_uri != ''
-            AND b.bin_uri != 'None'
+        WHERE b.`order` = ? AND b.family != ? AND b.family IS NOT NULL
+            AND b.nuc IS NOT NULL AND LENGTH(b.nuc) > 200
+            AND b.genus IS NOT NULL AND b.species IS NOT NULL
+            AND b.bin_uri IS NOT NULL AND b.bin_uri != '' AND b.bin_uri != 'None'
             AND b.bin_uri LIKE 'BOLD:%'
-        ORDER BY RANDOM()
-        LIMIT ?
+        ORDER BY RANDOM() LIMIT ?
         """
         
         try:
             outgroups_df = self.execute_with_retry(query, [family_order, family_name, num_outgroups * 5])
+            return self._select_diverse_outgroups(outgroups_df, num_outgroups)
         except Exception as e:
-            print(f"   Warning: Error getting outgroups: {e}")
+            print(f"   Warning: Error getting same-order outgroups: {e}")
             return pd.DataFrame()
+
+    def _get_outgroups_same_class(self, family_order, family_name, num_outgroups):
+        """Fallback method: find outgroups from other orders in the same class."""
+        # Get the class for this order
+        class_query = """
+        SELECT DISTINCT b.`class`
+        FROM bold b
+        WHERE b.`order` = ?
+        LIMIT 1
+        """
         
-        # Select diverse outgroups (one per family if possible)
-        outgroups = []
-        used_families = set()
-        
-        for _, row in outgroups_df.iterrows():
-            if len(outgroups) >= num_outgroups:
-                break
+        try:
+            class_result = self.execute_with_retry(class_query, [family_order])
+            if class_result.empty:
+                return pd.DataFrame()
             
+            target_class = class_result.iloc[0]['class']
+            print(f"   Expanding search to class {target_class}")
+            
+            # Get other orders in the same class
+            orders_query = """
+            SELECT DISTINCT b.`order` as order_name
+            FROM bold b
+            WHERE b.`class` = ? AND b.`order` != ?
+            ORDER BY b.`order` LIMIT 3
+            """
+            
+            orders_result = self.execute_with_retry(orders_query, [target_class, family_order])
+            if orders_result.empty:
+                return pd.DataFrame()
+            
+            other_orders = orders_result['order_name'].tolist()
+            
+            # Search for outgroups in these other orders
+            outgroups_list = []
+            for order_name in other_orders:
+                order_outgroups = self._get_outgroups_from_order(order_name, family_name, num_outgroups)
+                if not order_outgroups.empty:
+                    order_outgroups['outgroup_source'] = f'class_level_{order_name}'
+                    outgroups_list.append(order_outgroups)
+            
+            if outgroups_list:
+                combined_df = pd.concat(outgroups_list, ignore_index=True)
+                return self._select_diverse_outgroups(combined_df, num_outgroups)
+            
+            return pd.DataFrame()
+            
+        except Exception as e:
+            print(f"   Warning: Error getting class-level outgroups: {e}")
+            return pd.DataFrame()
+
+    def _get_outgroups_from_order(self, order_name, family_name, num_outgroups):
+        """Get outgroup sequences from a specific order."""
+        query = """
+        SELECT DISTINCT b.nuc, b.genus, b.species, b.processid, b.recordid, b.bin_uri, b.family
+        FROM bold b
+        WHERE b.`order` = ? AND b.family != ? AND b.family IS NOT NULL
+            AND b.nuc IS NOT NULL AND LENGTH(b.nuc) > 200
+            AND b.genus IS NOT NULL AND b.species IS NOT NULL
+            AND b.bin_uri IS NOT NULL AND b.bin_uri != '' AND b.bin_uri != 'None'
+            AND b.bin_uri LIKE 'BOLD:%'
+        ORDER BY RANDOM() LIMIT ?
+        """
+        
+        try:
+            return self.execute_with_retry(query, [order_name, family_name, num_outgroups * 2])
+        except Exception as e:
+            return pd.DataFrame()
+
+    def _select_diverse_outgroups(self, outgroups_df, num_outgroups):
+        """Select diverse outgroups, prioritizing different families and genera."""
+        if outgroups_df.empty:
+            return outgroups_df
+        
+        selected_outgroups = []
+        used_families = set()
+        used_genera = set()
+        
+        # Priority 1: Different families
+        for _, row in outgroups_df.iterrows():
+            if len(selected_outgroups) >= num_outgroups:
+                break
             if row['family'] not in used_families:
-                outgroups.append(row)
+                selected_outgroups.append(row)
                 used_families.add(row['family'])
+                used_genera.add(row['genus'])
         
-        # If we don't have enough diverse families, add more from same families
-        if len(outgroups) < num_outgroups:
+        # Priority 2: Different genera
+        if len(selected_outgroups) < num_outgroups:
             for _, row in outgroups_df.iterrows():
-                if len(outgroups) >= num_outgroups:
+                if len(selected_outgroups) >= num_outgroups:
                     break
-                if row.name not in [og.name for og in outgroups]:
-                    outgroups.append(row)
+                if row['genus'] not in used_genera:
+                    selected_outgroups.append(row)
+                    used_genera.add(row['genus'])
         
-        return pd.DataFrame(outgroups[:num_outgroups]) if outgroups else pd.DataFrame()
+        return pd.DataFrame(selected_outgroups) if selected_outgroups else pd.DataFrame()
+
+    def _combine_outgroup_sources(self, same_order_df, class_level_df, num_outgroups):
+        """Combine outgroups from different sources."""
+        combined_list = same_order_df.to_dict('records') if not same_order_df.empty else []
+        
+        if len(combined_list) < num_outgroups and not class_level_df.empty:
+            remaining_slots = num_outgroups - len(combined_list)
+            class_records = class_level_df.head(remaining_slots).to_dict('records')
+            combined_list.extend(class_records)
+        
+        return pd.DataFrame(combined_list) if combined_list else pd.DataFrame()
+    
+    def validate_enhanced_outgroups(self, test_families=None):
+        """
+        Validate that the enhanced outgroup selection is working properly.
+        Tests a few families that previously failed due to outgroup issues.
+        
+        Args:
+            test_families (list): List of family names to test, defaults to known problematic families
+            
+        Returns:
+            dict: Validation results
+        """
+        if test_families is None:
+            # Test families that were identified as failing in the original analysis
+            test_families = ['Anatidae', 'Acipenseridae', 'Cichlidae', 'Salmonidae', 'Caprimulgidae']
+        
+        validation_results = {}
+        
+        print("Validating enhanced outgroup selection...")
+        print("="*50)
+        
+        for family_name in test_families:
+            print(f"\nTesting {family_name}:")
+            
+            try:
+                # Get family order
+                family_query = """
+                SELECT DISTINCT b.`order`
+                FROM bold b
+                WHERE b.family = ?
+                LIMIT 1
+                """
+                
+                family_result = self.execute_with_retry(family_query, [family_name])
+                
+                if family_result.empty:
+                    print(f"   ⚠ Family {family_name} not found in database")
+                    validation_results[family_name] = {'status': 'not_found', 'outgroups': 0}
+                    continue
+                
+                family_order = family_result.iloc[0]['order']
+                print(f"   Order: {family_order}")
+                
+                # Test enhanced outgroup selection
+                outgroups = self.get_outgroups_optimized(family_order, family_name, num_outgroups=3)
+                
+                outgroup_count = len(outgroups)
+                outgroup_sources = []
+                
+                if outgroup_count > 0 and 'outgroup_source' in outgroups.columns:
+                    outgroup_sources = outgroups['outgroup_source'].unique().tolist()
+                
+                validation_results[family_name] = {
+                    'status': 'success' if outgroup_count > 0 else 'failed',
+                    'outgroups': outgroup_count,
+                    'sources': outgroup_sources,
+                    'order': family_order
+                }
+                
+                if outgroup_count > 0:
+                    source_summary = ', '.join(outgroup_sources) if outgroup_sources else 'same_order'
+                    print(f"   ✓ Found {outgroup_count} outgroups (sources: {source_summary})")
+                else:
+                    print(f"   ✗ No outgroups found")
+                    
+            except Exception as e:
+                print(f"   ✗ Error testing {family_name}: {e}")
+                validation_results[family_name] = {'status': 'error', 'error': str(e)}
+        
+        # Summary
+        print("\n" + "="*50)
+        print("VALIDATION SUMMARY:")
+        successful = sum(1 for r in validation_results.values() if r.get('status') == 'success')
+        total = len(validation_results)
+        print(f"Successful outgroup finding: {successful}/{total} families")
+        
+        enhanced_families = sum(1 for r in validation_results.values() 
+                              if r.get('sources') and any('class_level' in str(s) for s in r.get('sources', [])))
+        if enhanced_families > 0:
+            print(f"Families using enhanced (class-level) outgroups: {enhanced_families}")
+        
+        return validation_results
     
     def parse_sequence_metadata(self, tree, bags_grades=None):
         """
@@ -618,12 +814,13 @@ class PhylogeneticPipeline:
         
         for leaf in tree:
             if leaf.name.startswith('OUTGROUP|'):
-                # Parse: OUTGROUP|species|bin_uri|processid
-                parts = leaf.name.split('|', 3)  # Split on first 3 pipes
+                # Parse enhanced format: OUTGROUP|species|bin_uri|processid|outgroup_source
+                parts = leaf.name.split('|', 4)  # Split on first 4 pipes
                 is_outgroup = True
                 species = parts[1] if len(parts) > 1 else 'Unknown'
                 bin_uri = parts[2] if len(parts) > 2 else 'NA'
                 processid = parts[3] if len(parts) > 3 else 'NA'
+                outgroup_source = parts[4] if len(parts) > 4 else 'same_order'
             else:
                 # Parse: species|bin_uri|processid
                 parts = leaf.name.split('|', 2)  # Split on first 2 pipes
@@ -631,6 +828,7 @@ class PhylogeneticPipeline:
                 species = parts[0] if len(parts) > 0 else 'Unknown'
                 bin_uri = parts[1] if len(parts) > 1 else 'NA'
                 processid = parts[2] if len(parts) > 2 else 'NA'
+                outgroup_source = None
             
             # Get BAGS grade for the species
             bags_grade = bags_grades.get(species.replace('_', ' '), 'Unknown') if not is_outgroup else 'Outgroup'
@@ -640,7 +838,8 @@ class PhylogeneticPipeline:
                 'bin_uri': bin_uri,
                 'processid': processid,
                 'is_outgroup': is_outgroup,
-                'bags_grade': bags_grade
+                'bags_grade': bags_grade,
+                'outgroup_source': outgroup_source
             }
         
         return metadata
@@ -1096,8 +1295,11 @@ class PhylogeneticPipeline:
                 bin_uri = str(row.get('bin_uri', 'NA')).replace(' ', '_')
                 processid = str(row.get('processid', 'NA')).replace(' ', '_')
                 
-                # Create sequence ID with OUTGROUP prefix
-                seq_id = f"OUTGROUP|{species}|{bin_uri}|{processid}"
+                # Include outgroup source information if available
+                outgroup_source = row.get('outgroup_source', 'same_order')
+                
+                # Create sequence ID with OUTGROUP prefix and source info
+                seq_id = f"OUTGROUP|{species}|{bin_uri}|{processid}|{outgroup_source}"
                 
                 # Clean any problematic characters for phylogenetic software (but keep | as delimiter)
                 seq_id = seq_id.replace('(', '').replace(')', '').replace('[', '').replace(']', '')
@@ -1106,7 +1308,7 @@ class PhylogeneticPipeline:
                 record = SeqRecord(
                     Seq(row['nuc']),
                     id=seq_id,
-                    description=f"Outgroup|{row.get('genus', '')}_{species}|{row.get('family', 'Unknown')}"
+                    description=f"Outgroup|{row.get('genus', '')}_{species}|{row.get('family', 'Unknown')}|{outgroup_source}"
                 )
                 records.append(record)
             
@@ -1447,12 +1649,23 @@ class PhylogeneticPipeline:
                 print(f"   Insufficient species-BIN combinations: {unique_species_bins} < {min_otus}")
                 return None
             
-            # 4. Get outgroups from same order
+            # 4. Get outgroups from same order (with enhanced fallback strategy)
             outgroups = self.get_outgroups_optimized(family_order, family_name, num_outgroups)
             
             if len(outgroups) == 0:
                 print(f"   No outgroups found for {family_name}")
                 return None
+            
+            # Determine outgroup strategy used
+            outgroup_strategy = 'same_order'  # default
+            if 'outgroup_source' in outgroups.columns:
+                sources = outgroups['outgroup_source'].unique()
+                if len(sources) == 1 and sources[0] != 'same_order':
+                    outgroup_strategy = sources[0]
+                elif len(sources) > 1:
+                    outgroup_strategy = 'mixed'
+                elif any('class_level' in str(source) for source in sources):
+                    outgroup_strategy = 'class_level'
             
             # 5. Create FASTA
             if not self.create_fasta_file(representatives, outgroups, paths['fasta_file']):
@@ -1786,6 +1999,9 @@ class PhylogeneticPipeline:
         print(f"Successfully processed: {len(results)} ({success_rate:.1f}%)")
         print(f"Failed/skipped: {len(failed_families)}")
         
+        # Count outgroup sources used in successful families
+        outgroup_source_stats = {'same_order': 0, 'class_level': 0, 'mixed': 0, 'unknown': 0}
+        
         if results:
             print(f"\nSuccessfully processed families:")
             total_species_bins = sum(r['num_species_bins'] for r in results)
@@ -1796,9 +2012,20 @@ class PhylogeneticPipeline:
             print(f"  Total unique species: {total_species:,}")
             print(f"  Total sequences processed: {total_sequences:,}")
             
+            # Count families that benefited from enhanced outgroup selection
+            enhanced_outgroup_families = 0
+            for result in results:
+                if 'outgroup_strategy' in result and result['outgroup_strategy'] != 'same_order':
+                    enhanced_outgroup_families += 1
+            
+            if enhanced_outgroup_families > 0:
+                print(f"  Families rescued by enhanced outgroup selection: {enhanced_outgroup_families}")
+            
             for result in results[:10]:  # Show first 10
+                outgroup_info = result.get('outgroup_strategy', 'same_order')
                 print(f"  - {result['family']}: {result['num_species_bins']} species-BINs, "
-                      f"{result['num_species']} species, {result['num_sequences']} sequences")
+                      f"{result['num_species']} species, {result['num_sequences']} sequences "
+                      f"(outgroups: {outgroup_info})")
             
             if len(results) > 10:
                 print(f"  ... and {len(results) - 10} more families")
@@ -2059,6 +2286,8 @@ def main():
     parser.add_argument("--batch-id", help="Batch identifier for logging purposes")
     parser.add_argument("--checkpoint-file", help="File to save/load processing checkpoint")
     parser.add_argument("--custom-parameters", help="JSON file with custom parameters for phylogenetic software")
+    parser.add_argument("--validate-outgroups", action="store_true", 
+                       help="Validate enhanced outgroup selection on known problematic families")
     
     args = parser.parse_args()
     
@@ -2193,6 +2422,22 @@ def main():
     pipeline.batch_id = args.batch_id
     pipeline.checkpoint_file = args.checkpoint_file
     pipeline.completed_families = completed_families
+    
+    # Run validation if requested
+    if args.validate_outgroups:
+        print("Running enhanced outgroup validation...")
+        validation_results = pipeline.validate_enhanced_outgroups()
+        
+        # Save validation results
+        validation_file = Path(args.output_dir) / "outgroup_validation_results.json"
+        try:
+            with open(validation_file, 'w') as f:
+                json.dump(validation_results, f, indent=2)
+            print(f"Validation results saved to: {validation_file}")
+        except Exception as e:
+            print(f"Warning: Could not save validation results: {e}")
+        
+        return 0  # Exit after validation
     
     results = pipeline.run_pipeline_hpc_optimized(
         min_otus=args.min_otus, 

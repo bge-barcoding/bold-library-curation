@@ -1,7 +1,6 @@
 name: family_splitter_python
 channels:
   - conda-forge
-  - defaults
 dependencies:
   - python>=3.8
   - sqlite>=3.30.0

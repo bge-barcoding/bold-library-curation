@@ -76,11 +76,15 @@ def find_family_directories(source_dir: str, extensions: List[str] = ['.db']) ->
             # Use the directory name as the family name
             family_name = family_dir.name
             
-            # Calculate relative path for the zip file
+            # Calculate relative path from source directory to preserve hierarchy
             rel_path = family_dir.relative_to(source_path)
-            target_zip = f"{family_name}.zip"
             
-            family_dirs.append((str(family_dir), family_name, target_zip))
+            # Create target zip path preserving the directory structure
+            # Replace the family directory name with family_name.zip
+            target_zip_dir = rel_path.parent
+            target_zip = target_zip_dir / f"{family_name}.zip"
+            
+            family_dirs.append((str(family_dir), family_name, str(target_zip)))
     
     return family_dirs
 
@@ -135,18 +139,18 @@ def zip_family_directory(args: Tuple[str, str, str, str]) -> Tuple[str, bool, st
     Used for family directory compression mode.
     
     Args:
-        args: Tuple of (family_directory_path, family_name, target_zip_name, output_base_dir)
+        args: Tuple of (family_directory_path, family_name, target_zip_relative_path, output_base_dir)
     
     Returns:
         Tuple of (zip_filename, success, error_message, stats_dict)
     """
-    family_dir_path, family_name, target_zip_name, output_base_dir = args
+    family_dir_path, family_name, target_zip_rel, output_base_dir = args
     
     try:
         family_dir = Path(family_dir_path)
-        target_zip_path = Path(output_base_dir) / target_zip_name
+        target_zip_path = Path(output_base_dir) / target_zip_rel
         
-        # Create output directory if it doesn't exist
+        # Create output directory if it doesn't exist (preserving hierarchy)
         target_zip_path.parent.mkdir(parents=True, exist_ok=True)
         
         # Collect statistics
@@ -193,54 +197,6 @@ def zip_family_directory(args: Tuple[str, str, str, str]) -> Tuple[str, bool, st
             
     except Exception as e:
         return (str(target_zip_path), False, str(e), {})
-
-
-def summarize_family_stats(all_stats: List[Dict]) -> None:
-    """
-    Print detailed statistics for family directory compression mode.
-    
-    Args:
-        all_stats: List of statistics dictionaries from successful compressions
-    """
-    if not all_stats:
-        return
-    
-    logger.info("=" * 60)
-    logger.info("DETAILED FAMILY COMPRESSION STATISTICS")
-    logger.info("=" * 60)
-    
-    # Aggregate file type statistics
-    total_file_types = {}
-    total_families = len(all_stats)
-    total_files = sum(stats.get('files_count', 0) for stats in all_stats)
-    
-    for stats in all_stats:
-        file_types = stats.get('file_types', {})
-        for ext, count in file_types.items():
-            total_file_types[ext] = total_file_types.get(ext, 0) + count
-    
-    logger.info(f"Total families compressed: {total_families}")
-    logger.info(f"Total files compressed: {total_files}")
-    logger.info(f"Average files per family: {total_files/total_families:.1f}")
-    
-    logger.info("\nFile types compressed:")
-    for ext, count in sorted(total_file_types.items()):
-        percentage = (count / total_files) * 100
-        logger.info(f"  {ext or '(no extension)'}: {count} files ({percentage:.1f}%)")
-    
-    # Show sample families with their contents
-    logger.info("\nSample family contents:")
-    for i, stats in enumerate(all_stats[:5]):  # Show first 5 families
-        family_name = stats.get('family_name', f'Family_{i+1}')
-        files_count = stats.get('files_count', 0)
-        file_types = stats.get('file_types', {})
-        
-        logger.info(f"  {family_name}: {files_count} files")
-        for ext, count in file_types.items():
-            logger.info(f"    {ext or '(no extension)'}: {count}")
-    
-    if len(all_stats) > 5:
-        logger.info(f"  ... and {len(all_stats) - 5} more families")
 
 
 def main():
@@ -384,9 +340,6 @@ def main():
             logger.info(f"Original size: {total_original_size / (1024**3):.2f} GB")
             logger.info(f"Compressed size: {total_compressed_size / (1024**3):.2f} GB")
             logger.info(f"Space savings: {compression_ratio:.1f}%")
-            
-            if args.mode == 'family_directories':
-                summarize_family_stats(all_stats)
     
     return 0 if failed == 0 else 1
 
