@@ -14,6 +14,7 @@ dependencies:
   
   # Core Perl dependencies (consolidate versions)
   - perl=5.32.*
+  - perl-bio-phylo-forest-dbtree
   - perl-text-csv_xs
   - perl-log-log4perl
   - perl-module-load
@@ -30,7 +31,11 @@ dependencies:
   - gxx_linux-64
   - make
   
-  # Note: DBIx::Class modules will be installed via cpan after environment creation
+  # Note: DBIx::Class modules can be installed via cpan after environment creation
+  # cpanm Sub::Name
+  # cpanm DBIx::Class
+  # cpanm DBIx::Class::Schema::Loader
+  # cpanm SQL::Translator
   
   # Analysis tools
   - hmmer
