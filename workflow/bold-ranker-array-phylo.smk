@@ -1406,42 +1406,19 @@ rule split_families:
         echo "Looking for result files:" >> {log}
         find {params.output_dir} -name "*result.json" >> {log} 2>&1 || echo "No result files found" >> {log}
         
-        # Run consolidation with timeout
-        timeout 300 python {params.script_dir}/consolidate_results.py \
+        # Run consolidation
+        python {params.script_dir}/consolidate_results.py \
             {params.batch_dir} \
             {params.output_dir} \
             --wait-timeout 60 \
-            2>> {log} || {{
-            echo "WARNING: Consolidation timed out or failed, proceeding anyway..." >> {log}
-            # Create a basic report if consolidation fails
-            echo "Consolidation failed or timed out" > {output.report}
-            DB_COUNT=$(find {params.output_dir} -name "*.db" 2>/dev/null | wc -l || echo "0")
-            echo "Found $DB_COUNT database files" >> {output.report}
-        }}
+            2>> {log}
         
-        # Verify completion
-        if [ -f "{output.report}" ]; then
-            echo "Family splitting completed successfully" >> {log}
-            echo "Report generated: {output.report}" >> {log}
-            
-            # Log summary statistics
-            echo "" >> {log}
-            echo "=== Final Summary ===" >> {log}
-            DB_COUNT=$(find {params.output_dir} -name "*.db" 2>/dev/null | wc -l)
-            echo "Total family databases created: $DB_COUNT" >> {log}
-            echo "Exported kingdoms: {params.export_kingdoms}" >> {log}
-            
-            # Show sample of directory structure
-            echo "" >> {log}
-            echo "Sample output structure:" >> {log}
-            find {params.output_dir} -type d | head -10 | while read dir; do
-                echo "  $dir" >> {log}
-            done
-            
+        # Create marker file if consolidation succeeded
+        if [ $? -eq 0 ]; then
             touch {output.marker}
-            echo "Parallel family splitting completed successfully at $(date)" >> {log}
+            echo "Family splitting completed successfully" >> {log}
         else
-            echo "ERROR: Family splitting failed - no report generated" >> {log}
+            echo "ERROR: Consolidation failed" >> {log}
             exit 1
         fi
         """
