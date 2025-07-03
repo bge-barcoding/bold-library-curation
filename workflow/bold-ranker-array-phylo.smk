@@ -1494,7 +1494,7 @@ rule compress_family_databases:
         """
 
 rule integrate_phylogenetic_results:
-    """Integrate phylogenetic tree PDFs and curation checklist PDFs into family directories"""
+    """Integrate phylogenetic tree PDFs/SVGs and curation checklist PDFs into family directories"""
     input:
         families_split=f"{get_results_dir()}/families_split.ok",
         phylo_done=f"{get_results_dir()}/phylogenetic_analysis_parallel_completed.ok" if config.get("PHYLO_ENABLED", False) else []
@@ -1512,12 +1512,13 @@ rule integrate_phylogenetic_results:
         echo "Phylogenies source: {params.phylo_source_dir}" >> {log}
         echo "Family databases directory: {params.family_db_dir}" >> {log}
         echo "Phylogenetic analysis enabled: {params.phylo_enabled}" >> {log}
-        echo "Integration mode: PDF files only (tree PDFs and curation checklists)" >> {log}
+        echo "Integration mode: PDF and SVG files (tree PDFs/SVGs and curation checklists)" >> {log}
         echo "" >> {log}
         
         # Initialize counters
         TOTAL_FAMILIES=0
         PHYLO_MERGED=0
+        SVG_MERGED=0
         CURATION_MERGED=0
         
         # Function to extract family name from various sources
@@ -1565,7 +1566,7 @@ rule integrate_phylogenetic_results:
                         
                         # Copy only PDF files if they exist and phylo is enabled
                         if [ "{params.phylo_enabled}" = "True" ] && [ -d "{params.phylo_source_dir}/$family_name" ]; then
-                            echo "  Integrating PDF files for $family_name" >> {log}
+                            echo "  Integrating PDF and SVG files for $family_name" >> {log}
                             
                             # Look for tree PDF files and copy them directly to family directory root
                             TREE_PDFS=$(find "{params.phylo_source_dir}/$family_name" -name "*_tree.pdf" 2>/dev/null)
@@ -1582,6 +1583,23 @@ rule integrate_phylogenetic_results:
                                 INTEGRATION_SUCCESS=true
                             else
                                 echo "    ⚠ No tree PDF files found for $family_name" >> {log}
+                            fi
+                            
+                            # Look for tree SVG files and copy them directly to family directory root
+                            TREE_SVGS=$(find "{params.phylo_source_dir}/$family_name" -name "*_tree.svg" 2>/dev/null)
+                            
+                            if [ -n "$TREE_SVGS" ]; then
+                                echo "    Copying tree SVG files..." >> {log}
+                                echo "$TREE_SVGS" | while read tree_svg; do
+                                    if [ -f "$tree_svg" ]; then
+                                        cp "$tree_svg" "$family_dir/" 2>/dev/null
+                                        echo "    ✓ Copied tree SVG: $(basename "$tree_svg")" >> {log}
+                                    fi
+                                done
+                                SVG_MERGED=$((SVG_MERGED + 1))
+                                INTEGRATION_SUCCESS=true
+                            else
+                                echo "    ⚠ No tree SVG files found for $family_name" >> {log}
                             fi
                             
                             # Look for curation checklist PDFs and copy them directly to family directory root
@@ -1632,6 +1650,7 @@ rule integrate_phylogenetic_results:
         echo "=== Integration Summary ===" >> {log}
         echo "Total families processed: $TOTAL_FAMILIES" >> {log}
         echo "Families with tree PDFs integrated: $PHYLO_MERGED" >> {log}
+        echo "Families with tree SVGs integrated: $SVG_MERGED" >> {log}
         echo "Families with curation checklist PDFs integrated: $CURATION_MERGED" >> {log}
         
         # Verify results
@@ -1644,10 +1663,11 @@ rule integrate_phylogenetic_results:
             echo "  - Source phylogenies from: {params.phylo_source_dir}" >> {log}
             echo "  - Families found: $TOTAL_FAMILIES" >> {log}
             echo "  - Tree PDFs integrated: $PHYLO_MERGED" >> {log}
+            echo "  - Tree SVGs integrated: $SVG_MERGED" >> {log}
             echo "  - Curation checklist PDFs integrated: $CURATION_MERGED" >> {log}
             
-            if [ "$PHYLO_MERGED" -gt 0 ] || [ "$CURATION_MERGED" -gt 0 ]; then
-                echo "  - PDF integration rate: $(echo "scale=1; ($PHYLO_MERGED + $CURATION_MERGED) * 50 / $TOTAL_FAMILIES" | bc -l)%" >> {log}
+            if [ "$PHYLO_MERGED" -gt 0 ] || [ "$SVG_MERGED" -gt 0 ] || [ "$CURATION_MERGED" -gt 0 ]; then
+                echo "  - File integration rate: $(echo "scale=1; ($PHYLO_MERGED + $SVG_MERGED + $CURATION_MERGED) * 33.3 / $TOTAL_FAMILIES" | bc -l)%" >> {log}
             fi
             
             touch {output.marker}
@@ -1656,7 +1676,7 @@ rule integrate_phylogenetic_results:
             exit 1
         fi
         
-        echo "=== Phylogenetic PDF Integration Completed ===" >> {log}
+        echo "=== Phylogenetic PDF/SVG Integration Completed ===" >> {log}
         echo "End time: $(date)" >> {log}
         """
 

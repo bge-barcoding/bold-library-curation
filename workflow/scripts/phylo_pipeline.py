@@ -1241,16 +1241,19 @@ class PhylogeneticPipeline:
         family_dir = self.output_dir / family_name
         family_dir.mkdir(exist_ok=True)
         
-        return {
+        paths = {
             'family_dir': family_dir,
             'fasta_file': family_dir / f"{family_name}.fasta",
             'alignment_file': family_dir / f"{family_name}_aligned.fasta",
             'tree_file': family_dir / f"{family_name}.treefile",
             'pdf_file': family_dir / f"{family_name}_tree.pdf",
+            'svg_file': family_dir / f"{family_name}_tree.svg",
             'curation_pdf_file': family_dir / f"{family_name}_curation_checklist.pdf",
             'metadata_file': family_dir / f"tree_metadata.json",
             'curation_data_file': family_dir / f"curation_data.json"
         }
+        
+        return paths
     def create_fasta_file(self, representatives_df, outgroups_df, fasta_path):
         """
         Create a FASTA file for a family with ingroup and outgroup sequences.
@@ -1321,7 +1324,7 @@ class PhylogeneticPipeline:
     
     def generate_bin_conflict_pdf(self, tree_file, pdf_file, family_name, metadata_file):
         """
-        Generate PDF with BAGS grade visualization and Grade C monophyly analysis.
+        Generate PDF and SVG with BAGS grade visualization and Grade C monophyly analysis.
         
         Args:
             tree_file (Path): Path to tree file
@@ -1508,6 +1511,10 @@ class PhylogeneticPipeline:
             # Custom node styling function
             def layout(node):
                 if node.is_leaf():
+                    # Check if faces have already been added to prevent SVG duplication
+                    if hasattr(node, '_faces_added'):
+                        return
+                    
                     # Add colored circle based on BAGS grade (including monophyly)
                     circle = self.CircleFace(radius=4, color=node.bgcolor, style="sphere")
                     node.add_face(circle, column=0, position="branch-right")
@@ -1550,11 +1557,19 @@ class PhylogeneticPipeline:
                         
                         grade_face = self.TextFace(f" {grade_text}", fsize=8, fgcolor="black")
                         node.add_face(grade_face, column=3, position="branch-right")
+                    
+                    # Mark faces as added to prevent duplication
+                    node._faces_added = True
             
             ts.layout_fn = layout
             
             # Generate PDF
             tree.render(str(pdf_file), tree_style=ts, dpi=300)
+            
+            # Generate static SVG
+            svg_file = pdf_file.with_suffix('.svg')
+            tree.render(str(svg_file), tree_style=ts)
+            
             return True
             
         except Exception as e:
@@ -1628,7 +1643,7 @@ class PhylogeneticPipeline:
         paths = self.create_family_output_dir(family_name)
         
         # Skip if already processed (optional optimization)
-        if (paths['pdf_file'].exists() if self.generate_pdfs else paths['tree_file'].exists()):
+        if (paths['pdf_file'].exists() and paths['svg_file'].exists()) if self.generate_pdfs else paths['tree_file'].exists():
             print(f"   Already processed, skipping {family_name}")
             return None
         
@@ -1716,6 +1731,7 @@ class PhylogeneticPipeline:
                 'num_outgroups': len(outgroups),
                 'tree_file': paths['tree_file'],
                 'pdf_file': paths['pdf_file'] if self.generate_pdfs else None,
+                'svg_file': paths['svg_file'] if self.generate_pdfs else None,
                 'curation_pdf_file': paths['curation_pdf_file'],
                 'curation_data_file': paths['curation_data_file'],
                 'total_family_species': len(curation_data['genera']) if curation_data else 0
@@ -2454,7 +2470,9 @@ def main():
         print(f"Generated {len(results)} family phylogenies")
         if pipeline.generate_pdfs:
             pdf_count = len([r for r in results if r.get('pdf_file')])
+            svg_count = len([r for r in results if r.get('svg_file')])
             print(f"Generated {pdf_count} PDF visualizations")
+            print(f"Generated {svg_count} SVG visualizations")
         print(f"Output directory: {args.output_dir}")
         return 0
     else:

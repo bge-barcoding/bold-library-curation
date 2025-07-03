@@ -488,7 +488,7 @@ class HPCBOLDStatsGenerator:
                 query = f"""
                 SELECT COALESCE(`{col}`, 'Unknown') as country_name,
                        COUNT(*) as record_count, COUNT(DISTINCT species) as species_count
-                FROM bold WHERE `{col}` IS NOT NULL AND `{col}` != ''
+                FROM bold WHERE `{col}` IS NOT NULL AND `{col}` != '' AND `{col}` != 'None'
                 GROUP BY `{col}` ORDER BY record_count DESC
                 """
                 
@@ -510,7 +510,7 @@ class HPCBOLDStatsGenerator:
             query = """
             SELECT COALESCE(country, 'Unknown') as country_name,
                    COUNT(*) as record_count, COUNT(DISTINCT species) as species_count
-            FROM bold WHERE country IS NOT NULL AND country != ''
+            FROM bold WHERE country IS NOT NULL AND country != '' AND country != 'None'
             GROUP BY country ORDER BY record_count DESC
             """
             if self.fast_mode:
@@ -963,6 +963,7 @@ Manual intervention = BAGS grade C or E"""
         SELECT COALESCE(b.`country/ocean`, cr.country_iso) as country_name, COUNT(*) as rep_count
         FROM country_representatives cr
         LEFT JOIN bold b ON cr.recordid = b.recordid
+        WHERE COALESCE(b.`country/ocean`, cr.country_iso) != 'None'
         GROUP BY COALESCE(b.`country/ocean`, cr.country_iso)
         ORDER BY rep_count DESC
         LIMIT 15
@@ -973,6 +974,7 @@ Manual intervention = BAGS grade C or E"""
                 SELECT COALESCE(b.`country/ocean`, cr.country_iso) as country_name, COUNT(*) as rep_count
                 FROM (SELECT * FROM country_representatives ORDER BY RANDOM() LIMIT {self.sample_size}) cr
                 LEFT JOIN bold b ON cr.recordid = b.recordid
+                WHERE COALESCE(b.`country/ocean`, cr.country_iso) != 'None'
                 GROUP BY COALESCE(b.`country/ocean`, cr.country_iso)
                 ORDER BY rep_count DESC
                 LIMIT 15
