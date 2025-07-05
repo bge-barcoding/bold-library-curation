@@ -1,8 +1,9 @@
 # BOLD Ranker Workflow
-# ===============================================================================
+# ======================================================================================
 # This Snakefile processes BOLD sequence data through quality assessment 
-# criteria and splits results into family-level databases for efficient analysis.
+# criteria and splits results into family-level databases for efficient manual curation.
 
+# ----------------------------------
 # Configuration and helper functions
 # ----------------------------------
 import os
@@ -54,12 +55,14 @@ def get_taxonomy_dependency():
     # All assessment rules wait for database optimization to complete
     return [base_dep, f"{results_dir}/bags_optimized.ok"]
 
+# -----------------------------------
 # Ensure configured directories exist
-# ----------------------------------
+# -----------------------------------
 os.makedirs(get_results_dir(), exist_ok=True)
 os.makedirs(get_log_dir(), exist_ok=True)
 os.makedirs(f"{get_results_dir()}/family_databases", exist_ok=True)
 
+# =======================================
 # PHASE 1: DATA PREPARATION AND FILTERING
 # =======================================
 
@@ -107,6 +110,7 @@ else:
             echo 'Prescoring filter disabled - using original file: {input.original_file}' > {output.marker}
             """
 
+# ====================================
 # PHASE 2: DATABASE CREATION AND SETUP
 # ====================================
 
@@ -227,8 +231,10 @@ else:
         shell:
             "cp {input} {output}"
 
+# ====================================
 # PHASE 3: QUALITY CRITERIA ASSESSMENT
 # ====================================
+
 # Each rule assesses specimens against specific data quality criteria
 
 rule COLLECTION_DATE:
@@ -634,8 +640,9 @@ rule OTU_CLUSTERING:
         echo "OTU clustering completed on $(date)" >> {log}
         """
 
-# PHASE 4: BAGS ASSESSMENT AND OPTIMIZATION
-# =========================================
+# ========================
+# PHASE 4: BAGS ASSESSMENT
+# ========================
 
 rule optimize_bags_database:
     """Apply BAGS-specific database optimizations for improved performance"""
@@ -719,7 +726,7 @@ rule BAGS:
         echo "Format: taxonid, BAGS_grade, BIN_URL, sharers" >> {log}
         """
 
-# Modified rule to import simplified BAGS data into database
+# Import BAGS data into database
 rule import_bags:
     input:
         bags_tsv=f"{get_results_dir()}/assessed_BAGS.tsv",
@@ -802,8 +809,9 @@ INHERIT
         touch {output}
         """
 
+# ====================================
 # PHASE 5: DATA INTEGRATION AND OUTPUT
-# ===================================
+# ====================================
 
 rule concatenate:
     """Combine all individual criteria assessment results into single file"""
@@ -935,8 +943,9 @@ OTU
         touch {output}
         """
 
-# PHYLOGENETIC ANALYSIS - PARALLEL VERSION
-# ========================================
+# ==============================
+# PHASE 6: PHYLOGENETIC ANALYSIS
+# ==============================
 
 rule prepare_phylo_batches:
     """Prepare family batches for parallel phylogenetic analysis"""
@@ -1131,8 +1140,9 @@ else:
         fi
         """
 
-# RANKING ETC
-# ===========
+# =========================
+# PHASE 7: SPECIMEN RANKING
+# =========================
 
 rule create_ranks_schema:
     input:
@@ -1272,7 +1282,8 @@ rule output_filtered_data:
 EOF
         """
 
-# PHASE 6: PARALLEL FAMILY-LEVEL DATABASE CREATION
+# ================================================
+# PHASE 8: PARALLEL FAMILY-LEVEL DATABASE CREATION
 # ================================================
 
 rule split_families:
@@ -1680,8 +1691,9 @@ rule integrate_phylogenetic_results:
         echo "End time: $(date)" >> {log}
         """
 
-# PHASE 7: RUN SUMMARY
-# ======================
+# ===========================
+# PHASE 9: RUN SUMMARY REPORT
+# ===========================
 rule generate_stats_report:
     """Generate comprehensive database statistics report as final pipeline step"""
     input:
@@ -1744,8 +1756,9 @@ rule generate_stats_report:
         echo "End time: $(date)" >> {log}
         """
 
-# PHASE 8: ARCHIVE FINAL RESULTS
-# ==============================
+# ===============================
+# PHASE 10: ARCHIVE FINAL RESULTS
+# ===============================
 rule archive_final_results:
     """Archive key pipeline outputs with timestamp for final delivery"""
     input:
@@ -1893,6 +1906,7 @@ rule archive_final_results:
         echo "Completed at: $(date)" >> {output.archive_marker}
         """
 
+# ==================
 # FINAL TARGET RULES
 # ==================
 
