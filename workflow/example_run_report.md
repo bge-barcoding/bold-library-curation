@@ -115,6 +115,7 @@ results/
 │   │   ├── Aeshnidae_alignment.fasta     # Multiple sequence alignment
 │   │   ├── Aeshnidae_tree.newick         # Phylogenetic tree
 │   │   ├── Aeshnidae_tree.pdf            # Tree visualization PDF
+│   │   ├── Aeshnidae_tree.svg            # Tree visualization SVG
 │   │   ├── Aeshnidae_curation_checklist.pdf # Grade C species curation checklist
 │   │   ├── Aeshnidae_analysis_summary.json # Analysis statistics and parameters
 │   │   └── Aeshnidae_failed.log          # Error log (if analysis failed)
@@ -176,6 +177,7 @@ results/
     │   │   ├── Aeshnidae/                 # Family directory
     │   │   │   ├── Aeshnidae.db          # Family database
     │   │   │   ├── Aeshnidae_tree.pdf    # Phylogenetic tree PDF
+    │   │   │   ├── Aeshnidae_tree.svg    # Phylogenetic tree SVG
     │   │   │   └── Aeshnidae_curation_checklist.pdf # Curation checklist
     │   │   ├── Libellulidae/              # Another family directory
     │   │   │   └── [similar structure]
@@ -257,6 +259,7 @@ Individual SQLite databases for each family (or combined small families), contai
 - BAGS grades and OTU assignments
 - Country representative selections
 - **Integrated phylogenetic tree PDFs** for visualization
+- **Integrated phylogenetic tree SVGs** for scalable graphics
 - **Curation checklist PDFs** for Grade C species requiring attention
 - Optimized for family-specific queries and analysis
 - Hierarchical organization by phylum/order/family for logical structure
@@ -266,6 +269,7 @@ Individual SQLite databases for each family (or combined small families), contai
 ##### Family-Level Phylogenetic Trees
 - **Newick Format Trees**: Standard phylogenetic tree format for analysis software
 - **PDF Visualizations**: High-quality tree diagrams with bootstrap support values
+- **SVG Visualizations**: Scalable vector graphics for web and print applications
 - **Bootstrap Analysis**: Statistical support for tree topology (default: 1000 iterations)
 - **Outgroup Selection**: Enhanced strategy with hierarchical fallback (order → class)
 
@@ -299,6 +303,8 @@ Timestamped delivery package containing:
 - **Family Databases**: Compressed family-level databases with phylogenetic integration
 - **Documentation**: Statistics report and complete processing logs
 - **Metadata**: Processing parameters and pipeline version information
+- **Size Optimization**: Typically 60-80% smaller than uncompressed outputs
+- **Delivery Ready**: Single directory containing all essential pipeline outputs
 
 ### Database Schema Enhancement
 The final database includes specialized tables for advanced analysis:

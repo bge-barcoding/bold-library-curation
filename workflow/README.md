@@ -174,7 +174,7 @@ Each assessment rule:
   - `PHYLO_JOB_TIME`: Job time limit (default: "24:00:00")
   - `PHYLO_MAX_CONCURRENT`: Maximum concurrent jobs (default: 10)
   - `PHYLO_PARTITION`: SLURM partition (default: "week")
-  - `PHYLO_CUSTOM_PARAMETERS`: Tool-specific parameters
+  - `PHYLO_CUSTOM_PARAMETERS`: Tool-specific parameters (dict, e.g., {"mafft": ["--maxiterate", "1000"], "fasttree": ["-fastest"]})
 
 - **Output Products:**
   - Phylogenetic trees in Newick format
@@ -258,7 +258,6 @@ This enhancement significantly improves success rates for families that previous
 - **Scripts:** 
   - `workflow/scripts/prepare_family_batches.py` (batch preparation)
   - `workflow/scripts/family_split_array.sh` (SLURM array job)
-  - `workflow/scripts/process_family_batch.py` (family processing)
   - `workflow/scripts/consolidate_results.py` (result consolidation)
 
 #### Phylogenetic Results Integration
@@ -368,7 +367,7 @@ The pipeline is configured through `config/config.yml` which defines:
 - `PHYLO_MAX_CONCURRENT`: Maximum concurrent jobs (default: 10)
 - `PHYLO_PARTITION`: SLURM partition (default: "week")
 - `PHYLO_OUTPUT_DIR`: Output directory name (default: "phylogenies")
-- `PHYLO_CUSTOM_PARAMETERS`: Tool-specific parameters (dict)
+- `PHYLO_CUSTOM_PARAMETERS`: Tool-specific parameters (dict, e.g., {"mafft": ["--maxiterate", "1000"]})
 
 ### Family Database Configuration
 - `FAMILY_SIZE_THRESHOLD`: Minimum records for individual family database (default: 10,000)
@@ -403,7 +402,6 @@ The pipeline uses conda environments for different steps:
 - `prescoring_filter.yaml`: Pre-filtering operations (when enabled)
 - `compress_databases.yaml`: Database compression utilities
 - `stats_report.yaml`: Statistical analysis and PDF report generation
-- `parallel_family_split.yaml`: Parallel family database splitting
 
 ## Usage
 
@@ -509,6 +507,32 @@ The pipeline offers multiple complementary filtering approaches:
 - **When to use:** Reducing redundancy while maintaining geographic representation
 - **Filters by:** Quality ranking within geographic and phylogenetic groups
 - **Advantage:** Balanced representation across geographic regions
+
+## Final Target Rules
+
+### Main Pipeline Target (`rule all`)
+The pipeline's main target includes all essential outputs for complete analysis:
+
+```python
+rule all:
+    input:
+        f"{get_results_dir()}/result_output.tsv",                    # Final scored output
+        f"{get_results_dir()}/families_split.ok",                   # Family databases
+        f"{get_results_dir()}/phylogenetic_results_integrated.ok",  # Phylogenetic integration
+        f"{get_results_dir()}/family_databases_compressed.ok",      # Compressed archives
+        f"{get_results_dir()}/country_representatives_selected.ok", # Geographic representatives
+        f"{get_results_dir()}/stats_report_generated.ok",          # Statistical report
+        f"{get_results_dir()}/final_results_archived.ok"           # Final archive package
+```
+
+This target ensures:
+- **Complete specimen assessment** with all quality criteria and BAGS grades
+- **Family-level database organization** for efficient downstream analysis
+- **Phylogenetic analysis integration** when enabled
+- **Compressed deliverables** optimized for storage and transfer
+- **Geographic representation** maintaining sampling diversity
+- **Comprehensive documentation** via statistical reports
+- **Timestamped final archive** for streamlined delivery
 
 ## Output
 
