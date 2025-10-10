@@ -6,7 +6,7 @@ This Snakemake workflow processes BOLD sequence data through comprehensive quali
 
 The pipeline follows a systematic approach to evaluate BOLD specimens across multiple quality criteria, perform advanced phylogenetic analyses using parallel SLURM job arrays, and produce ranked outputs optimized for library curation. The workflow includes optional pre-filtering capabilities, OTU clustering, species-level BAGS assessment, parallel phylogenetic tree generation with curation checklists, and family-level database splitting for scalable downstream analysis.
 
-![BOLD Pipeline workflow](/doc/bold-workflow-diagram.svg)
+![BOLD Pipeline workflow](/doc/pipeline_summary.png)
 
 ## Workflow Phases
 
