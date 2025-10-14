@@ -16,12 +16,18 @@ sub _assess {
     my $package = shift;
     my $record = shift;
     
-# Check if the species field contains "sp.", is empty, or is "None"
-    if ($record->species =~ /^\s*$/ || $record->species =~ /sp\./ || $record->species =~ /^\s*None\s*$/i) {
-        return 0, "Species column is empty, contains 'sp.', or is 'None'";
+# Check if the species field contains excluded patterns, is empty, or is "None"
+    if ($record->species =~ /^\s*$/ || 
+        $record->species =~ /\s+cf\s+/ || 
+        $record->species =~ /\s+nr\s+/ || 
+        $record->species =~ /\s+aff\s+/ || 
+        $record->species =~ /\d+/ || 
+        $record->species =~ /\./ || 
+        $record->species =~ /^\s*None\s*$/i) {
+        return 0, "Species column is empty, contains excluded patterns ( cf , nr , aff , numbers, or periods), or is 'None'";
     }
 
-# If species field is not empty and doesn't contain 'sp.' or 'None', the criterion passes
+# If species field is not empty and doesn't contain excluded patterns or 'None', the criterion passes
     return 1, "Determined from species column";
 }
     
