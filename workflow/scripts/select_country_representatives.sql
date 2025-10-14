@@ -39,11 +39,14 @@ WITH RankedRecords AS (
     LEFT JOIN 
         bags ON b.taxonid = bags.taxonid
     WHERE 
-        -- Only include records with species-level identification
-        b.species IS NOT NULL 
-        AND b.species != ''
-        AND b.species != 'None'          -- Exclude "None" values
-        AND b.species NOT LIKE '%sp.%'   -- Exclude incomplete species identifications
+        -- Only include records with species-level identification (using SPECIES_ID criteria)
+        EXISTS (
+            SELECT 1 
+            FROM bold_criteria bc 
+            WHERE bc.recordid = b.recordid 
+            AND bc.criterionid = 1  -- SPECIES_ID criterion
+            AND bc.status = 1       -- Record passes the criterion
+        )
         -- Only include records with valid bin_uri
         AND b.bin_uri IS NOT NULL
         AND b.bin_uri != 'None'          -- Exclude "None" values
