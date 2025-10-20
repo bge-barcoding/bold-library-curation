@@ -6,7 +6,7 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=8G
 #SBATCH --time=24:00:00
-#SBATCH --partition=medium
+#SBATCH --partition=day
 
 # partitions day/medium or week/long (NHM/Crop)
 

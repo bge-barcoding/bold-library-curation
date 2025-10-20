@@ -116,7 +116,7 @@ PHYLO_MAX_CONCURRENT: 10               # Maximum concurrent jobs (controls %N in
 # SLURM resource allocation per job
 PHYLO_JOB_MEMORY: "8G"                # Memory per job
 PHYLO_JOB_TIME: "24:00:00"             # Time limit per job (HH:MM:SS)
-PHYLO_PARTITION: "medium"                # SLURM partition to use (medium/day)
+PHYLO_PARTITION: "day"                # SLURM partition to use (medium/day)
 
 # Analysis methods
 PHYLO_ALIGNMENT_METHOD: "mafft"        # Alignment method: "mafft" or "muscle"

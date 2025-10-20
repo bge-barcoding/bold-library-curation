@@ -4,6 +4,7 @@
 #SBATCH --error=logs/family_split_%A_%a.err
 #SBATCH --mem=8G
 #SBATCH --cpus-per-task=4
+#SBATCH --partition=day
 
 # SLURM Job Array Script for BOLD Family Database Splitting
 # Usage: sbatch --array=0-N family_split_array.sh <source_db> <batch_dir> <output_dir> <threshold>
