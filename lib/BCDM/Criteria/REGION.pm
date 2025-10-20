@@ -13,7 +13,8 @@ sub _criterion { $BCDM::Criteria::REGION }
 sub _assess {
     my $package = shift;
     my $record = shift;
-    return $record->region eq '' ? 0 : 1, "Determined from region column";
+    my $region = $record->region;
+    return ($region eq '' || lc($region) eq 'none') ? 0 : 1, "Determined from region column";
 }
 
 1;

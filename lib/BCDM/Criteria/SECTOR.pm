@@ -13,7 +13,8 @@ sub _criterion { $BCDM::Criteria::SECTOR }
 sub _assess {
     my $package = shift;
     my $record = shift;
-    return $record->sector eq '' ? 0 : 1, "Determined from sector column";
+    my $sector = $record->sector;
+    return ($sector eq '' || lc($sector) eq 'none') ? 0 : 1, "Determined from sector column";
 }
 
 1;

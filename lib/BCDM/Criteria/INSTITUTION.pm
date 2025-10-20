@@ -10,6 +10,7 @@ sub _criterion { $BCDM::Criteria::INSTITUTION }
 my @neg = (
     'genbank',
     'no voucher',
+    'none',
     'personal',
     'private',
     'research collection of',
