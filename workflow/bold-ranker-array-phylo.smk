@@ -1197,6 +1197,7 @@ rule calculate_store_ranks:
         sqlite3 {input.db} < workflow/scripts/calculate_store_ranks.sql 2> {log}
         touch {output}
         """
+
 rule apply_country_rep_indexes:
     """Apply specialized indexes for country representative selection performance"""
     input:
@@ -1227,7 +1228,7 @@ rule select_country_representatives:
     """Select best representative record per species per OTU per country"""
     input:
         db=get_db_file(),
-        ranks_ok=f"{get_results_dir()}/ranks_calculated.ok"
+        ranks_ok=f"{get_results_dir()}/ranks_calculated.ok",
         indexes_ok=f"{get_results_dir()}/country_rep_indexes_applied.ok"
     output:
         f"{get_results_dir()}/country_representatives_selected.ok"

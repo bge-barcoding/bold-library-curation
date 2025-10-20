@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --partition=medium
+#SBATCH --partition=day
 #SBATCH --output=%j_out.out
 #SBATCH --error=%j_err.err
 #SBATCH --mem=40G
@@ -11,10 +11,13 @@
 
 # OPTION 1 (remove #)
 # source ~/.bashrc  
-# conda activate bold-curation
+# conda activate boldetective
 
 # OPTION 2 (remove #)
-# source activate bold-curation
+# source activate boldetective
+
+# Set PERL5LIB to include cpanm installations
+export PERL5LIB=$CONDA_PREFIX/lib/perl5:$HOME/perl5/lib/perl5:$PERL5LIB
 
 # Cluster partitions for SLURM scheduler
 # day / medium 
