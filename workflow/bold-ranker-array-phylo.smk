@@ -1197,12 +1197,38 @@ rule calculate_store_ranks:
         sqlite3 {input.db} < workflow/scripts/calculate_store_ranks.sql 2> {log}
         touch {output}
         """
+rule apply_country_rep_indexes:
+    """Apply specialized indexes for country representative selection performance"""
+    input:
+        db=get_db_file(),
+        ranks_ok=f"{get_results_dir()}/ranks_calculated.ok",
+        indexes_sql="workflow/scripts/country_rep_indexes.sql"
+    output:
+        f"{get_results_dir()}/country_rep_indexes_applied.ok"
+    log: f"{get_log_dir()}/apply_country_rep_indexes.log"
+    conda: "envs/sqlite.yaml"
+    shell:
+        """
+        echo "=== Applying Country Representative Indexes ===" > {log}
+        echo "Start time: $(date)" >> {log}
+        echo "Database: {input.db}" >> {log}
+        echo "" >> {log}
+        
+        sqlite3 {input.db} < {input.indexes_sql} 2>> {log}
+        
+        echo "" >> {log}
+        echo "=== Index Application Completed ===" >> {log}
+        echo "End time: $(date)" >> {log}
+        
+        touch {output}
+        """
 
 rule select_country_representatives:
     """Select best representative record per species per OTU per country"""
     input:
         db=get_db_file(),
         ranks_ok=f"{get_results_dir()}/ranks_calculated.ok"
+        indexes_ok=f"{get_results_dir()}/country_rep_indexes_applied.ok"
     output:
         f"{get_results_dir()}/country_representatives_selected.ok"
     conda: "envs/sqlite.yaml"

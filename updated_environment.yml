@@ -1,0 +1,67 @@
+name: boldetective
+channels:
+  - conda-forge
+  - bioconda
+  - defaults  # Add defaults channel for better package availability
+  
+dependencies:
+  # Core Python and workflow management
+  - python=3.10  # Remove .* to allow minor version flexibility
+  - snakemake>=7.32,<8  # Allow patch version updates
+  - mamba
+  
+  # Database
+  - sqlite>=3.39
+  
+  # Core Perl dependencies (let conda resolve versions)
+  - perl>=5.32
+  - perl-bio-phylo-forest-dbtree
+  - perl-text-csv_xs
+  - perl-log-log4perl
+  - perl-module-load
+  - perl-json
+  - perl-libwww-perl
+  - perl-lwp-protocol-https
+  - perl-dbd-sqlite
+  - perl-dbi
+  - perl-getopt-long
+  - perl-time-hires
+  
+  # Build tools - let conda choose compatible versions
+  - gcc_linux-64
+  - gxx_linux-64
+  - make
+  
+  # Analysis tools - relax version constraints
+  - hmmer
+  - jq
+  - curl
+  - bc
+  - muscle>=5,<6
+  - mafft>=7,<8
+  - iqtree>=2,<3
+  - fasttree>=2,<3
+  
+  # ETE3 with minimal constraints - let conda resolve dependencies
+  - ete3>=3.1
+  - pyqt>=5
+  # Remove explicit qt-main, icu, libgd, libzlib pins - let them be resolved
+  
+  # OTU clustering tools
+  - vsearch>=2.21
+  - cd-hit>=4.8
+  
+  # Python packages - allow more flexibility
+  - pandas>=1.5,<2
+  - numpy>=1.21,<2
+  - biopython>=1.79
+  - matplotlib>=3.5,<4
+  - seaborn>=0.11,<1
+  - psutil>=5.8
+  - scipy>=1.7,<2
+  - reportlab
+  - pip
+  
+  # Pip packages (if needed after conda install)
+  - pip:
+    - cpanm  # For installing additional Perl modules if needed
