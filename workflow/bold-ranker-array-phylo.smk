@@ -19,6 +19,10 @@ def get_db_file():
     results_dir = get_results_dir()
     return f"{results_dir}/bold.db"
 
+def get_db_file_ancient():
+    """Return the database file wrapped in ancient() to ignore timestamps"""
+    return ancient(get_db_file())
+
 def get_db_file_indexed():
     """Return the indexed database marker file path using the configured results directory"""
     results_dir = get_results_dir()
@@ -140,7 +144,7 @@ rule load_criteria:
     """Load assessment criteria definitions into database"""
     input:
         criteria="resources/criteria.tsv",
-        db=get_db_file()
+        db=get_db_file_ancient()
     output:
         f"{get_results_dir()}/criteria_loaded.ok"
     log: f"{get_log_dir()}/load_criteria.log"
@@ -159,7 +163,7 @@ rule apply_indexes:
     """Apply database indexes to optimize query performance"""
     input:
         indexes=config["INDEXES"],
-        db=get_db_file(),
+        db=get_db_file_ancient(),
         criteria_ok=f"{get_results_dir()}/criteria_loaded.ok"
     output: 
         get_db_file_indexed()
@@ -173,7 +177,7 @@ rule apply_indexes:
 rule load_taxonomy:
     """Load NCBI taxonomy data into database using optimized chunked loading"""
     input:
-        db=get_db_file(),
+        db=get_db_file_ancient(),
         index_ok=get_db_file_indexed()
     output:
         f"{get_results_dir()}/taxonomy_loaded.ok"
@@ -197,7 +201,7 @@ if config.get("USE_TARGET_LIST", False):
     rule import_target_list:
         """Import specific target taxa list for focused assessment"""
         input:
-            db=get_db_file(),
+            db=get_db_file_ancient(),
             taxonomy_ok=f"{get_results_dir()}/taxonomy_loaded.ok",
             targetlist=config["TARGET_LIST"]
         output:
@@ -240,7 +244,7 @@ else:
 rule COLLECTION_DATE:
     """Assess specimen collection date completeness and validity"""
     input:
-        db=get_db_file(),
+        db=get_db_file_ancient(),
         taxonomy_ok=get_taxonomy_dependency()
     params:
         log_level=config['LOG_LEVEL'],
@@ -262,7 +266,7 @@ rule COLLECTION_DATE:
 rule COLLECTORS:
     """Assess collector information completeness"""
     input:
-        db=get_db_file(),
+        db=get_db_file_ancient(),
         taxonomy_ok=get_taxonomy_dependency()
     params:
         log_level=config['LOG_LEVEL'],
@@ -284,7 +288,7 @@ rule COLLECTORS:
 rule COUNTRY:
     """Assess country information completeness and standardization"""
     input:
-        db=get_db_file(),
+        db=get_db_file_ancient(),
         taxonomy_ok=get_taxonomy_dependency()
     params:
         log_level=config['LOG_LEVEL'],
@@ -306,7 +310,7 @@ rule COUNTRY:
 rule ID_METHOD:
     """Assess taxonomic identification method documentation"""
     input:
-        db=get_db_file(),
+        db=get_db_file_ancient(),
         taxonomy_ok=get_taxonomy_dependency()
     params:
         log_level=config['LOG_LEVEL'],
@@ -328,7 +332,7 @@ rule ID_METHOD:
 rule IDENTIFIER:
     """Assess taxonomic identifier information completeness"""
     input:
-        db=get_db_file(),
+        db=get_db_file_ancient(),
         taxonomy_ok=get_taxonomy_dependency()
     params:
         log_level=config['LOG_LEVEL'],
@@ -350,7 +354,7 @@ rule IDENTIFIER:
 rule INSTITUTION:
     """Assess institutional affiliation completeness"""
     input:
-        db=get_db_file(),
+        db=get_db_file_ancient(),
         taxonomy_ok=get_taxonomy_dependency()
     params:
         log_level=config['LOG_LEVEL'],
@@ -372,7 +376,7 @@ rule INSTITUTION:
 rule COORD:
     """Assess geographic coordinate completeness and precision"""
     input:
-        db=get_db_file(),
+        db=get_db_file_ancient(),
         taxonomy_ok=get_taxonomy_dependency()
     params:
         log_level=config['LOG_LEVEL'],
@@ -394,7 +398,7 @@ rule COORD:
 rule MUSEUM_ID:
     """Assess museum/institution specimen ID completeness"""
     input:
-        db=get_db_file(),
+        db=get_db_file_ancient(),
         taxonomy_ok=get_taxonomy_dependency()
     params:
         log_level=config['LOG_LEVEL'],
@@ -416,7 +420,7 @@ rule MUSEUM_ID:
 rule PUBLIC_VOUCHER:
     """Assess public voucher specimen availability"""
     input:
-        db=get_db_file(),
+        db=get_db_file_ancient(),
         taxonomy_ok=get_taxonomy_dependency()
     params:
         log_level=config['LOG_LEVEL'],
@@ -438,7 +442,7 @@ rule PUBLIC_VOUCHER:
 rule SEQ_QUALITY:
     """Assess DNA sequence quality metrics"""
     input:
-        db=get_db_file(),
+        db=get_db_file_ancient(),
         taxonomy_ok=get_taxonomy_dependency()
     params:
         log_level=config['LOG_LEVEL'],
@@ -460,7 +464,7 @@ rule SEQ_QUALITY:
 rule SITE:
     """Assess collection site information completeness"""
     input:
-        db=get_db_file(),
+        db=get_db_file_ancient(),
         taxonomy_ok=get_taxonomy_dependency()
     params:
         log_level=config['LOG_LEVEL'],
@@ -482,7 +486,7 @@ rule SITE:
 rule REGION:
     """Assess geographic region information completeness"""
     input:
-        db=get_db_file(),
+        db=get_db_file_ancient(),
         taxonomy_ok=get_taxonomy_dependency()
     params:
         log_level=config['LOG_LEVEL'],
@@ -504,7 +508,7 @@ rule REGION:
 rule SECTOR:
     """Assess geographic sector information completeness"""
     input:
-        db=get_db_file(),
+        db=get_db_file_ancient(),
         taxonomy_ok=get_taxonomy_dependency()
     params:
         log_level=config['LOG_LEVEL'],
@@ -526,7 +530,7 @@ rule SECTOR:
 rule SPECIES_ID:
     """Assess species identification completeness and accuracy"""
     input:
-        db=get_db_file(),
+        db=get_db_file_ancient(),
         taxonomy_ok=get_taxonomy_dependency()
     params:
         log_level=config['LOG_LEVEL'],
@@ -548,7 +552,7 @@ rule SPECIES_ID:
 rule TYPE_SPECIMEN:
     """Assess type specimen designation and documentation"""
     input:
-        db=get_db_file(),
+        db=get_db_file_ancient(),
         taxonomy_ok=get_taxonomy_dependency()
     params:
         log_level=config['LOG_LEVEL'],
@@ -570,7 +574,7 @@ rule TYPE_SPECIMEN:
 rule HAS_IMAGE:
     """Assess specimen image availability"""
     input:
-        db=get_db_file(),
+        db=get_db_file_ancient(),
         taxonomy_ok=get_taxonomy_dependency()
     params:
         log_level=config['LOG_LEVEL'],
@@ -590,7 +594,7 @@ rule HAS_IMAGE:
 rule OTU_CLUSTERING:
     """Identify OTUs (Operational Taxonomic Units) using VSEARCH clustering"""
     input:
-        db=get_db_file(),
+        db=get_db_file_ancient(),
         taxonomy_ok=get_taxonomy_dependency()
     output:
         tsv=f"{get_results_dir()}/assessed_OTU_CLUSTERING.tsv"
@@ -647,7 +651,7 @@ rule OTU_CLUSTERING:
 rule optimize_bags_database:
     """Apply BAGS-specific database optimizations for improved performance"""
     input:
-        db=get_db_file(),
+        db=get_db_file_ancient(),
         taxonomy_ok=lambda wildcards: f"{get_results_dir()}/target_loaded.ok" if config.get("USE_TARGET_LIST", False) else f"{get_results_dir()}/taxonomy_loaded.ok"
     output:
         f"{get_results_dir()}/bags_optimized.ok"
@@ -666,7 +670,7 @@ rule optimize_bags_database:
 # BAGS (species-level assessment)
 rule BAGS:
     input:
-        db=get_db_file(),
+        db=get_db_file_ancient(),
         bags_optimized=f"{get_results_dir()}/bags_optimized.ok"
     params:
         log_level=config['LOG_LEVEL'],
@@ -730,7 +734,7 @@ rule BAGS:
 rule import_bags:
     input:
         bags_tsv=f"{get_results_dir()}/assessed_BAGS.tsv",
-        db=get_db_file()
+        db=get_db_file_ancient()
     output:
         f"{get_results_dir()}/bags_imported.ok"
     conda: "envs/sqlite.yaml"
@@ -771,7 +775,7 @@ BAGS
 rule inherit_subspecies_bags:
     """Inherit BAGS grades for subspecies from their parent species"""
     input:
-        db=get_db_file(),
+        db=get_db_file_ancient(),
         bags_ok=f"{get_results_dir()}/bags_imported.ok"
     output:
         f"{get_results_dir()}/subspecies_bags_inherited.ok"
@@ -860,7 +864,7 @@ rule import_concatenated:
     """Import combined criteria assessment results into database"""
     input:
         concat=f"{get_results_dir()}/CONCATENATED.tsv",
-        db=get_db_file(),
+        db=get_db_file_ancient(),
         subspecies_ok=f"{get_results_dir()}/subspecies_bags_inherited.ok"
     output:
         f"{get_results_dir()}/concatenated_imported.ok"
@@ -880,7 +884,7 @@ rule import_otus:
     """Import OTU data into specialized OTU table"""
     input:
         otu_tsv=rules.OTU_CLUSTERING.output.tsv,
-        db=get_db_file(),
+        db=get_db_file_ancient(),
         concatenated_ok=f"{get_results_dir()}/concatenated_imported.ok"  # Add dependency to prevent concurrent database access
     output:
         f"{get_results_dir()}/otus_imported.ok"
@@ -950,7 +954,7 @@ OTU
 rule prepare_phylo_batches:
     """Prepare family batches for parallel phylogenetic analysis"""
     input:
-        db=get_db_file(),
+        db=get_db_file_ancient(),
         otus_ok=f"{get_results_dir()}/otus_imported.ok"
     output:
         batch_dir=directory(f"{get_results_dir()}/phylo_batches"),
@@ -1000,7 +1004,7 @@ rule run_phylogenetic_analysis_parallel:
     input:
         batch_dir=f"{get_results_dir()}/phylo_batches",
         summary=f"{get_results_dir()}/phylo_batches/phylo_batch_summary.json",
-        db=get_db_file()
+        db=get_db_file_ancient()
     output:
         marker=f"{get_results_dir()}/phylogenetic_analysis_parallel_completed.ok",
         custom_params=f"{get_results_dir()}/phylo_custom_parameters.json"
@@ -1146,7 +1150,7 @@ else:
 
 rule create_ranks_schema:
     input:
-        db=get_db_file(),
+        db=get_db_file_ancient(),
         otus_ok=f"{get_results_dir()}/otus_imported.ok",
         concatenated_ok=f"{get_results_dir()}/concatenated_imported.ok",
         phylo_ok=f"{get_results_dir()}/phylogenetic_analysis_parallel_completed.ok" if config.get("PHYLO_ENABLED", False) else []
@@ -1172,7 +1176,7 @@ SCHEMA
 
 rule apply_ranking_indexes:
     input:
-        db=get_db_file(),
+        db=get_db_file_ancient(),
         schema_ok=f"{get_results_dir()}/schema_with_ranks_applied.ok"
     output: 
         f"{get_results_dir()}/ranking_indexes_applied.ok"
@@ -1186,7 +1190,7 @@ rule apply_ranking_indexes:
 
 rule calculate_store_ranks:
     input:
-        db=get_db_file(),
+        db=get_db_file_ancient(),
         indexes_ok=f"{get_results_dir()}/ranking_indexes_applied.ok"
     output:
         f"{get_results_dir()}/ranks_calculated.ok"
@@ -1201,7 +1205,7 @@ rule calculate_store_ranks:
 rule apply_country_rep_indexes:
     """Apply specialized indexes for country representative selection performance"""
     input:
-        db=get_db_file(),
+        db=get_db_file_ancient(),
         ranks_ok=f"{get_results_dir()}/ranks_calculated.ok",
         indexes_sql="workflow/scripts/country_rep_indexes.sql"
     output:
@@ -1227,7 +1231,7 @@ rule apply_country_rep_indexes:
 rule select_country_representatives:
     """Select best representative record per species per OTU per country"""
     input:
-        db=get_db_file(),
+        db=get_db_file_ancient(),
         ranks_ok=f"{get_results_dir()}/ranks_calculated.ok",
         indexes_ok=f"{get_results_dir()}/country_rep_indexes_applied.ok"
     output:
@@ -1260,7 +1264,7 @@ rule select_country_representatives:
 rule populate_manual_curation:
     """Populate manual_curation table with URLs for all BOLD records"""
     input:
-        db=get_db_file(),
+        db=get_db_file_ancient(),
         rep_ok=f"{get_results_dir()}/country_representatives_selected.ok"
     output:
         f"{get_results_dir()}/manual_curation_populated.ok"
@@ -1292,7 +1296,7 @@ rule populate_manual_curation:
 rule output_filtered_data:
     """Generate final scored and ranked output with all assessments combined including OTUs"""
     input:
-        db=get_db_file(),
+        db=get_db_file_ancient(),
         curation_ok=f"{get_results_dir()}/manual_curation_populated.ok"
     output:
         f"{get_results_dir()}/result_output.tsv"
@@ -1317,7 +1321,7 @@ rule split_families:
     """Split main database into family-level databases using parallel job array processing"""
     input:
         result_tsv=f"{get_results_dir()}/result_output.tsv",
-        db=get_db_file()
+        db=get_db_file_ancient()
     output:
         marker=f"{get_results_dir()}/families_split.ok",
         report=f"{get_results_dir()}/family_databases/splitting_report.txt"
@@ -1724,7 +1728,7 @@ rule integrate_phylogenetic_results:
 rule generate_stats_report:
     """Generate comprehensive database statistics report as final pipeline step"""
     input:
-        db=get_db_file(),
+        db=get_db_file_ancient(),
         families_split=f"{get_results_dir()}/families_split.ok",
         compressed=f"{get_results_dir()}/family_databases_compressed.ok"
     output:

@@ -79,7 +79,11 @@ def get_families_for_phylo(db_path, min_otus=3, export_kingdoms=None):
 
 def create_family_batches(families_df, num_jobs, families_per_job=None):
     """
-    Split families into batches for parallel processing.
+    Split families into batches for parallel processing using round-robin distribution.
+    
+    This distributes families evenly across batches to balance computational load,
+    ensuring each batch gets a mix of large and small families rather than clustering
+    all large families in the first batch.
     
     Args:
         families_df (pandas.DataFrame): Families to process
@@ -94,28 +98,33 @@ def create_family_batches(families_df, num_jobs, families_per_job=None):
     if families_per_job:
         # Use fixed families per job
         actual_jobs = min(num_jobs, (total_families + families_per_job - 1) // families_per_job)
-        families_per_batch = families_per_job
     else:
         # Distribute evenly across available jobs
         actual_jobs = min(num_jobs, total_families)
-        families_per_batch = (total_families + actual_jobs - 1) // actual_jobs
     
-    batches = []
-    for i in range(actual_jobs):
-        start_idx = i * families_per_batch
-        end_idx = min((i + 1) * families_per_batch, total_families)
-        
-        if start_idx < total_families:
-            batch_families = families_df.iloc[start_idx:end_idx].copy()
-            
-            batch_info = {
-                'batch_id': i + 1,  # 1-based for SLURM array
-                'families': batch_families[['family', 'order', 'kingdom']].astype(str).to_dict('records'),
-                'family_count': len(batch_families),
-                'total_species_bins': int(batch_families['species_bin_count'].sum()),
-                'complexity_score': float(batch_families['species_bin_count'].mean())
-            }
-            batches.append(batch_info)
+    # Initialize empty batches with species_bin tracking
+    batches = [{
+        'batch_id': i + 1,
+        'families': [],
+        'species_bin_counts': []
+    } for i in range(actual_jobs)]
+    
+    # Distribute families round-robin to balance load
+    for idx, row in families_df.iterrows():
+        batch_idx = idx % actual_jobs
+        batches[batch_idx]['families'].append({
+            'family': str(row['family']),
+            'order': str(row['order']),
+            'kingdom': str(row['kingdom'])
+        })
+        batches[batch_idx]['species_bin_counts'].append(row['species_bin_count'])
+    
+    # Calculate statistics for each batch
+    for batch in batches:
+        species_bin_counts = batch.pop('species_bin_counts')
+        batch['family_count'] = len(batch['families'])
+        batch['total_species_bins'] = int(sum(species_bin_counts))
+        batch['complexity_score'] = float(sum(species_bin_counts) / len(species_bin_counts)) if species_bin_counts else 0.0
     
     return batches
 
