@@ -77,4 +77,5 @@ dependencies:
   - psutil=5.8.*     # System monitoring
   - scipy=1.7.*      # Scientific computing (compatible with numpy 1.21)
   - reportlab        # PDF curation checklist
+  - pyyaml           # YAML configuration file parsing
   - pip              # For installing packages not available via conda
