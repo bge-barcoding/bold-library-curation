@@ -166,7 +166,7 @@ def load_result_output(result_file: Path) -> Tuple[Dict, Dict]:
     """
     Load result_output.tsv and extract species information.
     
-    Combines subspecies with their parent species (e.g., "Genus species subspecies" -> "Genus species")
+    Includes subspecies in the full species name (e.g., "Genus species subspecies")
     
     Returns:
         Tuple of:
@@ -191,10 +191,20 @@ def load_result_output(result_file: Path) -> Tuple[Dict, Dict]:
                 if not species_full or not taxonid:
                     continue
                 
-                # If subspecies exists, combine it with species as parent species
+                # If subspecies exists, include it in the full species name
                 if subspecies and subspecies.lower() not in ['none', 'null', '']:
-                    # Use the species (parent) instead of the full subspecies name
-                    species = species_full
+                    # Subspecies field may contain full trinomial (e.g., "Genus species subspecies")
+                    # Extract just the subspecies epithet (last word)
+                    subspecies_parts = subspecies.split()
+                    if len(subspecies_parts) >= 3:
+                        # Full trinomial provided, take the last word
+                        subspecies_epithet = subspecies_parts[-1]
+                    else:
+                        # Just subspecies epithet provided
+                        subspecies_epithet = subspecies
+                    
+                    # Create full trinomial: "Genus species subspecies"
+                    species = f"{species_full} {subspecies_epithet}"
                     subspecies_count += 1
                 else:
                     species = species_full
@@ -219,7 +229,7 @@ def load_result_output(result_file: Path) -> Tuple[Dict, Dict]:
                     species_taxonid_map[species_lower].append((taxonid, taxonomy))
         
         logging.info(f"Loaded {len(species_taxonid_map)} unique species from result output")
-        logging.info(f"Combined {subspecies_count} subspecies records with parent species")
+        logging.info(f"Found {subspecies_count} subspecies records")
         logging.info(f"Processed {sum(taxonid_record_count.values())} total records")
         logging.info(f"Found {len(taxonid_record_count)} unique taxonids")
         
@@ -259,7 +269,7 @@ def perform_gap_analysis(
                 bags_info = bags_data.get(taxonid, {})
                 
                 result = {
-                    'valid_species': format_species_name(species_lower),  # Proper format: Genus species
+                    'species': format_species_name(species_lower),  # Proper format: Genus species (or Genus species subspecies)
                     'synonyms': '|'.join(synonyms) if synonyms else '',
                     'gaplist_species': 'Yes',  # This species IS in the input gap list
                     'BAGS_grade': bags_info.get('BAGS', ''),
@@ -277,7 +287,7 @@ def perform_gap_analysis(
         else:
             # Species in input list but not in results
             result = {
-                'valid_species': format_species_name(species_lower),  # Proper format: Genus species
+                'species': format_species_name(species_lower),  # Proper format: Genus species
                 'synonyms': '|'.join(synonyms) if synonyms else '',
                 'gaplist_species': 'Yes',  # This species IS in the input gap list
                 'BAGS_grade': '',
@@ -300,7 +310,7 @@ def perform_gap_analysis(
                 bags_info = bags_data.get(taxonid, {})
                 
                 result = {
-                    'valid_species': format_species_name(species_lower),  # Proper format: Genus species
+                    'species': format_species_name(species_lower),  # Proper format: Genus species (or Genus species subspecies)
                     'synonyms': '',
                     'gaplist_species': 'No',  # This species is NOT in the input gap list
                     'BAGS_grade': bags_info.get('BAGS', ''),
@@ -335,7 +345,7 @@ def write_gap_analysis(results: List[Dict], output_file: Path) -> None:
     logging.info(f"Writing gap analysis to {output_file}")
     
     fieldnames = [
-        'valid_species',
+        'species',
         'synonyms',
         'gaplist_species',
         'BAGS_grade',
