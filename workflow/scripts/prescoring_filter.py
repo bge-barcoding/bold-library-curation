@@ -26,7 +26,35 @@ from typing import Set, Optional, Dict, Any
 import time
 
 # Increase CSV field size limit to handle large TSV files
-csv.field_size_limit(sys.maxsize)
+# Use platform-specific max size (Windows has different limits)
+import platform
+if platform.system() == 'Windows':
+    csv.field_size_limit(2147483647)  # Max int on Windows
+else:
+    csv.field_size_limit(sys.maxsize)
+
+
+def sanitize_field(field: str) -> str:
+    """
+    Sanitize a field value to prevent parsing issues caused by unescaped quotes.
+    
+    Args:
+        field: Raw field value from TSV
+        
+    Returns:
+        Sanitized field value with quotes removed and whitespace cleaned
+    """
+    if not field:
+        return ''
+    
+    # Remove embedded newlines and carriage returns that cause row merging
+    field = field.replace('\r', ' ').replace('\n', ' ')
+    
+    # Remove all double quotes to prevent CSV parsing issues
+    # The BOLD data contains unescaped quotes like "Syn. that break parsers
+    field = field.replace('"', '')
+    
+    return field.strip()
 
 
 def setup_logging(log_level: str = "INFO") -> None:
@@ -146,11 +174,14 @@ def filter_by_taxa(input_file: str, taxa_set: Set[str], species_column: str) -> 
     matching_processids = set()
     
     with open(input_file, 'r', encoding='utf-8') as f:
-        reader = csv.DictReader(f, delimiter='\t')
+        reader = csv.DictReader(f, delimiter='\t', quoting=csv.QUOTE_NONE)
         
         for row_num, row in enumerate(reader, 1):
             if row_num % 10000 == 0:
                 logging.info(f"Taxa filtering: processed {row_num} rows")
+            
+            # Sanitize all fields to prevent parsing issues
+            row = {k: sanitize_field(v) if v else '' for k, v in row.items()}
                 
             species_raw = row.get(species_column, '') or ''
             species = species_raw.strip().lower() if species_raw else ''
@@ -179,11 +210,14 @@ def filter_by_countries(input_file: str, country_set: Set[str], country_column: 
     matching_processids = set()
     
     with open(input_file, 'r', encoding='utf-8') as f:
-        reader = csv.DictReader(f, delimiter='\t')
+        reader = csv.DictReader(f, delimiter='\t', quoting=csv.QUOTE_NONE)
         
         for row_num, row in enumerate(reader, 1):
             if row_num % 10000 == 0:
                 logging.info(f"Country filtering: processed {row_num} rows")
+            
+            # Sanitize all fields to prevent parsing issues
+            row = {k: sanitize_field(v) if v else '' for k, v in row.items()}
                 
             country_raw = row.get(country_column, '') or ''
             country = country_raw.strip().upper() if country_raw else ''
@@ -212,11 +246,14 @@ def filter_by_marker(input_file: str, marker_code: str, marker_column: str) -> S
     matching_processids = set()
     
     with open(input_file, 'r', encoding='utf-8') as f:
-        reader = csv.DictReader(f, delimiter='\t')
+        reader = csv.DictReader(f, delimiter='\t', quoting=csv.QUOTE_NONE)
         
         for row_num, row in enumerate(reader, 1):
             if row_num % 10000 == 0:
                 logging.info(f"Marker filtering: processed {row_num} rows")
+            
+            # Sanitize all fields to prevent parsing issues
+            row = {k: sanitize_field(v) if v else '' for k, v in row.items()}
                 
             marker_raw = row.get(marker_column, '') or ''
             marker = marker_raw.strip() if marker_raw else ''
@@ -246,9 +283,12 @@ def get_bins_for_processids(processids: Set[str], input_file: str) -> Set[str]:
     processids_without_bins = 0
     
     with open(input_file, 'r', encoding='utf-8') as f:
-        reader = csv.DictReader(f, delimiter='\t')
+        reader = csv.DictReader(f, delimiter='\t', quoting=csv.QUOTE_NONE)
         
         for row in reader:
+            # Sanitize all fields to prevent parsing issues
+            row = {k: sanitize_field(v) if v else '' for k, v in row.items()}
+            
             processid_raw = row.get('processid', '') or ''
             processid = processid_raw.strip() if processid_raw else ''
             if processid in processids:
@@ -280,9 +320,12 @@ def get_processids_for_bins(bins: Set[str], input_file: str) -> Set[str]:
     processids = set()
     
     with open(input_file, 'r', encoding='utf-8') as f:
-        reader = csv.DictReader(f, delimiter='\t')
+        reader = csv.DictReader(f, delimiter='\t', quoting=csv.QUOTE_NONE)
         
         for row in reader:
+            # Sanitize all fields to prevent parsing issues
+            row = {k: sanitize_field(v) if v else '' for k, v in row.items()}
+            
             bin_uri_raw = row.get('bin_uri', '') or ''
             bin_uri = bin_uri_raw.strip() if bin_uri_raw else ''
             if bin_uri and bin_uri in bins:
@@ -355,11 +398,14 @@ def filter_by_kingdom(input_file: str, kingdom_set: Set[str], kingdom_column: st
     matching_processids = set()
     
     with open(input_file, 'r', encoding='utf-8') as f:
-        reader = csv.DictReader(f, delimiter='\t')
+        reader = csv.DictReader(f, delimiter='\t', quoting=csv.QUOTE_NONE)
         
         for row_num, row in enumerate(reader, 1):
             if row_num % 10000 == 0:
                 logging.info(f"Kingdom filtering: processed {row_num} rows")
+            
+            # Sanitize all fields to prevent parsing issues
+            row = {k: sanitize_field(v) if v else '' for k, v in row.items()}
                 
             kingdom_raw = row.get(kingdom_column, '') or ''
             kingdom = kingdom_raw.strip() if kingdom_raw else ''
@@ -384,7 +430,7 @@ def detect_column_names(input_file: str) -> Dict[str, str]:
         Dictionary mapping standard names to actual column names
     """
     with open(input_file, 'r', encoding='utf-8') as f:
-        reader = csv.DictReader(f, delimiter='\t')
+        reader = csv.DictReader(f, delimiter='\t', quoting=csv.QUOTE_NONE)
         headers = reader.fieldnames or []
     
     column_map = {}
@@ -551,13 +597,17 @@ def prescoring_filter(
     with open(input_tsv, 'r', encoding='utf-8') as infile, \
          open(output_tsv, 'w', encoding='utf-8', newline='') as outfile:
         
-        reader = csv.DictReader(infile, delimiter='\t')
-        writer = csv.DictWriter(outfile, fieldnames=reader.fieldnames, delimiter='\t')
+        reader = csv.DictReader(infile, delimiter='\t', quoting=csv.QUOTE_NONE)
+        writer = csv.DictWriter(outfile, fieldnames=reader.fieldnames, delimiter='\t', 
+                               quoting=csv.QUOTE_NONE)
         writer.writeheader()
         
         for row_num, row in enumerate(reader, 1):
             if row_num % 10000 == 0:
                 logging.info(f"Output writing: processed {row_num}/{total_rows} rows")
+            
+            # Sanitize all fields FIRST to prevent parsing issues
+            row = {k: sanitize_field(v) if v else '' for k, v in row.items()}
                 
             processid_raw = row.get('processid', '') or ''
             processid = processid_raw.strip() if processid_raw else ''

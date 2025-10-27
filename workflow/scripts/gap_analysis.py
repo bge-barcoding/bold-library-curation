@@ -78,7 +78,7 @@ def format_species_name(species_lower: str) -> str:
     return species_lower
 
 
-def parse_species_list(species_file: Path) -> Tuple[Dict[str, List[str]], Set[str]]:
+def parse_species_list(species_file: Path) -> Tuple[Dict[str, List[str]], Set[str], Dict[str, str]]:
     """
     Parse species list with optional synonyms.
     
@@ -88,10 +88,12 @@ def parse_species_list(species_file: Path) -> Tuple[Dict[str, List[str]], Set[st
         Tuple of:
         - Dictionary mapping valid species (lowercase) to list of synonyms
         - Set of all valid species names (original case)
+        - Dictionary mapping synonym (lowercase) to valid species (lowercase)
     """
     logging.info(f"Loading species list from {species_file}")
     species_synonyms = {}  # lowercase valid species -> list of synonyms
     valid_species_set = set()  # original case valid species
+    synonym_to_valid = {}  # lowercase synonym -> lowercase valid species
     
     try:
         with open(species_file, 'r', encoding='utf-8') as f:
@@ -118,12 +120,16 @@ def parse_species_list(species_file: Path) -> Tuple[Dict[str, List[str]], Set[st
                 
                 species_synonyms[key] = synonyms
                 valid_species_set.add(valid_species)
+                
+                # Build synonym to valid species mapping
+                for syn in synonyms:
+                    synonym_to_valid[syn.lower()] = key
         
         logging.info(f"Loaded {len(species_synonyms)} species from input list")
         total_synonyms = sum(len(syns) for syns in species_synonyms.values())
         logging.info(f"Total synonyms: {total_synonyms}")
         
-        return species_synonyms, valid_species_set
+        return species_synonyms, valid_species_set, synonym_to_valid
         
     except Exception as e:
         logging.error(f"Failed to load species list: {e}")
@@ -134,32 +140,51 @@ def load_assessed_bags(bags_file: Path) -> Dict[str, Dict]:
     """
     Load BAGS assessment data.
     
+    Handles both UTF-8 and Latin-1 encoded files automatically.
+    
     Returns dictionary: taxonid -> {BAGS: grade, BIN: uri, sharers: list}
     """
     logging.info(f"Loading BAGS assessments from {bags_file}")
     bags_data = {}
     
-    try:
-        with open(bags_file, 'r', encoding='utf-8') as f:
-            reader = csv.DictReader(f, delimiter='\t')
-            
-            for row in reader:
-                taxonid = row.get('taxonid', '').strip()
-                if not taxonid:
-                    continue
+    # Try UTF-8 first, fall back to Latin-1 if decoding fails
+    for encoding in ['utf-8', 'latin-1']:
+        try:
+            with open(bags_file, 'r', encoding=encoding) as f:
+                reader = csv.DictReader(f, delimiter='\t')
                 
-                bags_data[taxonid] = {
-                    'BAGS': row.get('BAGS', '').strip(),
-                    'BIN': row.get('BIN', '').strip(),
-                    'sharers': row.get('sharers', '').strip()
-                }
-        
-        logging.info(f"Loaded BAGS data for {len(bags_data)} taxonids")
-        return bags_data
-        
-    except Exception as e:
-        logging.error(f"Failed to load BAGS data: {e}")
-        sys.exit(1)
+                for row in reader:
+                    taxonid = row.get('taxonid', '').strip()
+                    if not taxonid:
+                        continue
+                    
+                    bags_data[taxonid] = {
+                        'BAGS': row.get('BAGS', '').strip(),
+                        'BIN': row.get('BIN', '').strip(),
+                        'sharers': row.get('sharers', '').strip()
+                    }
+            
+            # If we successfully read the file, log and return
+            if encoding == 'latin-1':
+                logging.info(f"Successfully read file using {encoding} encoding")
+            logging.info(f"Loaded BAGS data for {len(bags_data)} taxonids")
+            return bags_data
+            
+        except UnicodeDecodeError as e:
+            if encoding == 'utf-8':
+                logging.warning(f"UTF-8 decoding failed for BAGS file, trying Latin-1 encoding")
+                bags_data = {}  # Reset for retry
+                continue
+            else:
+                logging.error(f"Failed to load BAGS data with Latin-1 encoding: {e}")
+                sys.exit(1)
+        except Exception as e:
+            logging.error(f"Failed to load BAGS data: {e}")
+            sys.exit(1)
+    
+    # Should never reach here
+    logging.error("Failed to load BAGS data with any supported encoding")
+    sys.exit(1)
 
 
 def load_result_output(result_file: Path) -> Tuple[Dict, Dict]:
@@ -167,6 +192,8 @@ def load_result_output(result_file: Path) -> Tuple[Dict, Dict]:
     Load result_output.tsv and extract species information.
     
     Includes subspecies in the full species name (e.g., "Genus species subspecies")
+    
+    Handles both UTF-8 and Latin-1 encoded files automatically.
     
     Returns:
         Tuple of:
@@ -179,70 +206,92 @@ def load_result_output(result_file: Path) -> Tuple[Dict, Dict]:
     taxonid_record_count = defaultdict(int)
     subspecies_count = 0
     
-    try:
-        with open(result_file, 'r', encoding='utf-8') as f:
-            reader = csv.DictReader(f, delimiter='\t')
-            
-            for row in reader:
-                species_full = row.get('species', '').strip()
-                subspecies = row.get('subspecies', '').strip()
-                taxonid = row.get('taxonid', '').strip()
+    # Try UTF-8 first, fall back to Latin-1 if decoding fails
+    for encoding in ['utf-8', 'latin-1']:
+        try:
+            with open(result_file, 'r', encoding=encoding) as f:
+                reader = csv.DictReader(f, delimiter='\t')
                 
-                if not species_full or not taxonid:
-                    continue
-                
-                # If subspecies exists, include it in the full species name
-                if subspecies and subspecies.lower() not in ['none', 'null', '']:
-                    # Subspecies field may contain full trinomial (e.g., "Genus species subspecies")
-                    # Extract just the subspecies epithet (last word)
-                    subspecies_parts = subspecies.split()
-                    if len(subspecies_parts) >= 3:
-                        # Full trinomial provided, take the last word
-                        subspecies_epithet = subspecies_parts[-1]
-                    else:
-                        # Just subspecies epithet provided
-                        subspecies_epithet = subspecies
+                for row in reader:
+                    species_full = row.get('species', '').strip()
+                    subspecies = row.get('subspecies', '').strip()
+                    taxonid = row.get('taxonid', '').strip()
                     
-                    # Create full trinomial: "Genus species subspecies"
-                    species = f"{species_full} {subspecies_epithet}"
-                    subspecies_count += 1
-                else:
-                    species = species_full
-                
-                # Count records per taxonid
-                taxonid_record_count[taxonid] += 1
-                
-                # Extract taxonomy (only add once per species-taxonid combo)
-                species_lower = species.lower()
-                
-                # Check if we already have this species-taxonid combination
-                existing_taxonids = [t for t, _ in species_taxonid_map[species_lower]]
-                if taxonid not in existing_taxonids:
-                    taxonomy = {
-                        'kingdom': row.get('kingdom', '').strip(),
-                        'phylum': row.get('phylum', '').strip(),
-                        'class': row.get('class', '').strip(),
-                        'order': row.get('order', '').strip(),
-                        'family': row.get('family', '').strip(),
-                        'genus': row.get('genus', '').strip()
-                    }
-                    species_taxonid_map[species_lower].append((taxonid, taxonomy))
-        
-        logging.info(f"Loaded {len(species_taxonid_map)} unique species from result output")
-        logging.info(f"Found {subspecies_count} subspecies records")
-        logging.info(f"Processed {sum(taxonid_record_count.values())} total records")
-        logging.info(f"Found {len(taxonid_record_count)} unique taxonids")
-        
-        return dict(species_taxonid_map), dict(taxonid_record_count)
-        
-    except Exception as e:
-        logging.error(f"Failed to load result output: {e}")
-        sys.exit(1)
+                    if not species_full or not taxonid:
+                        continue
+                    
+                    # If subspecies exists, include it in the full species name
+                    if subspecies and subspecies.lower() not in ['none', 'null', '']:
+                        # Subspecies field may contain full trinomial (e.g., "Genus species subspecies")
+                        # Extract just the subspecies epithet (last word)
+                        subspecies_parts = subspecies.split()
+                        if len(subspecies_parts) >= 3:
+                            # Full trinomial provided, take the last word
+                            subspecies_epithet = subspecies_parts[-1]
+                        else:
+                            # Just subspecies epithet provided
+                            subspecies_epithet = subspecies
+                        
+                        # Create full trinomial: "Genus species subspecies"
+                        species = f"{species_full} {subspecies_epithet}"
+                        subspecies_count += 1
+                    else:
+                        species = species_full
+                    
+                    # Count records per taxonid
+                    taxonid_record_count[taxonid] += 1
+                    
+                    # Extract taxonomy (only add once per species-taxonid combo)
+                    species_lower = species.lower()
+                    
+                    # Check if we already have this species-taxonid combination
+                    existing_taxonids = [t for t, _ in species_taxonid_map[species_lower]]
+                    if taxonid not in existing_taxonids:
+                        taxonomy = {
+                            'kingdom': row.get('kingdom', '').strip(),
+                            'phylum': row.get('phylum', '').strip(),
+                            'class': row.get('class', '').strip(),
+                            'order': row.get('order', '').strip(),
+                            'family': row.get('family', '').strip(),
+                            'genus': row.get('genus', '').strip()
+                        }
+                        species_taxonid_map[species_lower].append((taxonid, taxonomy))
+            
+            # If we successfully read the file, log success and return
+            if encoding == 'latin-1':
+                logging.info(f"Successfully read file using {encoding} encoding")
+            logging.info(f"Loaded {len(species_taxonid_map)} unique species from result output")
+            logging.info(f"Found {subspecies_count} subspecies records")
+            logging.info(f"Processed {sum(taxonid_record_count.values())} total records")
+            logging.info(f"Found {len(taxonid_record_count)} unique taxonids")
+            
+            return dict(species_taxonid_map), dict(taxonid_record_count)
+            
+        except UnicodeDecodeError as e:
+            if encoding == 'utf-8':
+                logging.warning(f"UTF-8 decoding failed at position {e.start}, trying Latin-1 encoding")
+                # Reset counters for retry
+                species_taxonid_map = defaultdict(list)
+                taxonid_record_count = defaultdict(int)
+                subspecies_count = 0
+                continue
+            else:
+                # Latin-1 should handle any byte sequence, so this shouldn't happen
+                logging.error(f"Failed to load result output with Latin-1 encoding: {e}")
+                sys.exit(1)
+        except Exception as e:
+            logging.error(f"Failed to load result output: {e}")
+            sys.exit(1)
+    
+    # Should never reach here
+    logging.error("Failed to load result output with any supported encoding")
+    sys.exit(1)
 
 
 def perform_gap_analysis(
     species_synonyms: Dict[str, List[str]],
     valid_species_set: Set[str],
+    synonym_to_valid: Dict[str, str],
     species_taxonid_map: Dict,
     taxonid_record_count: Dict,
     bags_data: Dict
@@ -271,7 +320,7 @@ def perform_gap_analysis(
                 result = {
                     'species': format_species_name(species_lower),  # Proper format: Genus species (or Genus species subspecies)
                     'synonyms': '|'.join(synonyms) if synonyms else '',
-                    'gaplist_species': 'Yes',  # This species IS in the input gap list
+                    'gaplist_species': 'Valid',  # Matched valid species in input gap list
                     'BAGS_grade': bags_info.get('BAGS', ''),
                     'BIN_uri': bags_info.get('BIN', ''),
                     'sharers': bags_info.get('sharers', ''),
@@ -289,7 +338,7 @@ def perform_gap_analysis(
             result = {
                 'species': format_species_name(species_lower),  # Proper format: Genus species
                 'synonyms': '|'.join(synonyms) if synonyms else '',
-                'gaplist_species': 'Yes',  # This species IS in the input gap list
+                'gaplist_species': 'Valid',  # Matched valid species in input gap list
                 'BAGS_grade': '',
                 'BIN_uri': '',
                 'sharers': '',
@@ -303,16 +352,24 @@ def perform_gap_analysis(
             }
             results.append(result)
     
-    # Process species found in results but NOT in input list (not in gap list)
+    # Process species found in results but NOT in input list (check for synonyms or mark as No)
     for species_lower, taxonid_list in species_taxonid_map.items():
         if species_lower not in processed_species:
+            # Check if this species is a synonym
+            if species_lower in synonym_to_valid:
+                # This species matches a synonym
+                gaplist_value = 'Synonym'
+            else:
+                # This species is not in the input gap list at all
+                gaplist_value = 'No'
+            
             for taxonid, taxonomy in taxonid_list:
                 bags_info = bags_data.get(taxonid, {})
                 
                 result = {
                     'species': format_species_name(species_lower),  # Proper format: Genus species (or Genus species subspecies)
                     'synonyms': '',
-                    'gaplist_species': 'No',  # This species is NOT in the input gap list
+                    'gaplist_species': gaplist_value,  # Either 'Synonym' or 'No'
                     'BAGS_grade': bags_info.get('BAGS', ''),
                     'BIN_uri': bags_info.get('BIN', ''),
                     'sharers': bags_info.get('sharers', ''),
@@ -329,11 +386,13 @@ def perform_gap_analysis(
     logging.info(f"Gap analysis complete: {len(results)} total entries")
     
     # Summary statistics
-    gaplist_species_count = len([r for r in results if r['gaplist_species'] == 'Yes'])
+    valid_species_count = len([r for r in results if r['gaplist_species'] == 'Valid'])
+    synonym_species_count = len([r for r in results if r['gaplist_species'] == 'Synonym'])
     non_gaplist_species_count = len([r for r in results if r['gaplist_species'] == 'No'])
     species_with_bags = len([r for r in results if r['BAGS_grade']])
     
-    logging.info(f"  - Gap list species: {gaplist_species_count}")
+    logging.info(f"  - Valid species (from gap list): {valid_species_count}")
+    logging.info(f"  - Synonym species: {synonym_species_count}")
     logging.info(f"  - Non-gap list species: {non_gaplist_species_count}")
     logging.info(f"  - Species with BAGS assessment: {species_with_bags}")
     
@@ -481,7 +540,7 @@ Examples:
     args.output.parent.mkdir(parents=True, exist_ok=True)
     
     # Load all data
-    species_synonyms, valid_species_set = parse_species_list(species_list_path)
+    species_synonyms, valid_species_set, synonym_to_valid = parse_species_list(species_list_path)
     bags_data = load_assessed_bags(args.assessed_bags)
     species_taxonid_map, taxonid_record_count = load_result_output(args.result_output)
     
@@ -489,6 +548,7 @@ Examples:
     results = perform_gap_analysis(
         species_synonyms,
         valid_species_set,
+        synonym_to_valid,
         species_taxonid_map,
         taxonid_record_count,
         bags_data
