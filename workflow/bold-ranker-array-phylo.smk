@@ -578,7 +578,8 @@ rule HAS_IMAGE:
         taxonomy_ok=get_taxonomy_dependency()
     params:
         log_level=config['LOG_LEVEL'],
-        libs=config["LIBS"]
+        libs=config["LIBS"],
+        resume_flag="--resume" if config.get("RESUME_IMAGE_ASSESSMENT", True) else ""
     output:
         tsv=f"{get_results_dir()}/assessed_HAS_IMAGE.tsv"
     log: f"{get_log_dir()}/assess_HAS_IMAGE.log"
@@ -587,8 +588,10 @@ rule HAS_IMAGE:
         """
         perl -I{params.libs} workflow/scripts/assess_images.pl \
             --db {input.db} \
+            --output {output.tsv} \
             --log {params.log_level} \
-            2> {log} > {output.tsv}
+            {params.resume_flag} \
+            2> {log}
         """
 
 rule OTU_CLUSTERING:

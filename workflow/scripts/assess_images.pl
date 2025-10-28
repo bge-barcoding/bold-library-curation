@@ -13,6 +13,10 @@ use Log::Log4perl qw(:easy);
 # Adjustable sleep time (microseconds) and batch size
 our $SLEEP = 500;
 my $BATCH_SIZE = 1000;  # Reduced batch size to avoid 414 error
+my $MAX_RETRIES = 5;     # Maximum retry attempts for API calls
+my $RETRY_DELAY = 5;     # Initial retry delay in seconds (exponential backoff)
+my $BATCH_DELAY = 1;     # Delay between batches in seconds (rate limiting)
+my $CHECKPOINT_INTERVAL = 10000;  # Save checkpoint every N records
 
 # API endpoints
 my $base_url  = 'https://caos.boldsystems.org/api/images?processids=';
@@ -21,14 +25,22 @@ my $image_url = 'https://caos.boldsystems.org/api/objects/';
 # Command-line arguments
 my $db_file;
 my $tsv_file;
+my $output_file;
 my $log_level = 'INFO';
 my $persist   = 0;
+my $resume    = 0;  # Flag to enable resuming from checkpoint
 GetOptions(
     'db=s'         => \$db_file,
     'tsv=s'        => \$tsv_file,
+    'output=s'     => \$output_file,
     'log=s'        => \$log_level,
     'persist'      => \$persist,
-    'batch_size=i' => \$BATCH_SIZE,  # Allow batch size to be configured
+    'resume'       => \$resume,
+    'batch_size=i' => \$BATCH_SIZE,     # Allow batch size to be configured
+    'max_retries=i'=> \$MAX_RETRIES,    # Allow retry attempts to be configured
+    'retry_delay=i'=> \$RETRY_DELAY,    # Allow retry delay to be configured
+    'batch_delay=i'=> \$BATCH_DELAY,    # Allow batch delay to be configured
+    'checkpoint_interval=i' => \$CHECKPOINT_INTERVAL,  # Allow checkpoint interval to be configured
 );
 
 # Initialize Logger
@@ -43,9 +55,85 @@ END
 my $log = Log::Log4perl->get_logger('assess_criteria');
 $log->info("Starting image retrieval with batch size: $BATCH_SIZE");
 
-# Instantiate user agent
-my $ua = LWP::UserAgent->new;
-$log->info("UserAgent initialized");
+# Setup output file handling
+my $temp_output_file;
+my $output_fh;
+
+if ($output_file) {
+    $temp_output_file = "$output_file.tmp";
+    
+    # Determine output mode based on resume flag and temp file existence
+    my $output_mode = '>';  # Default: overwrite
+    if ($resume && -f $temp_output_file) {
+        $output_mode = '>>';  # Append mode when resuming
+        $log->info("Resuming: appending to existing temporary output file: $temp_output_file");
+    } else {
+        $log->info("Writing to temporary output file: $temp_output_file");
+    }
+    
+    open $output_fh, $output_mode, $temp_output_file 
+        or die "Cannot open temporary output file $temp_output_file: $!";
+    
+    # Enable autoflush for immediate writes
+    my $old_fh = select($output_fh);
+    $| = 1;
+    select($old_fh);
+    
+    # Write header only if creating new file
+    if ($output_mode eq '>') {
+        print $output_fh "recordid\tcriterion\tvalue\tnote\n";
+    }
+} else {
+    # Fall back to stdout if no output file specified
+    $output_fh = \*STDOUT;
+    print $output_fh "recordid\tcriterion\tvalue\tnote\n";
+    $log->info("Writing to stdout");
+}
+
+# Setup checkpoint file path
+my $checkpoint_file;
+my $checkpoint_data_file;
+my $skip_count = 0;
+my %processed_recordids;  # Track which records we've already processed
+
+if ($db_file) {
+    $checkpoint_file = "$db_file.image_checkpoint";
+    $checkpoint_data_file = "$db_file.image_checkpoint.data";
+    
+    # Load checkpoint if resume flag is set
+    if ($resume && -f $checkpoint_file) {
+        open my $fh, '<', $checkpoint_file or die "Cannot open checkpoint file: $!";
+        $skip_count = <$fh>;
+        chomp $skip_count;
+        close $fh;
+        
+        # Load processed record IDs
+        if (-f $checkpoint_data_file) {
+            open my $dfh, '<', $checkpoint_data_file or die "Cannot open checkpoint data: $!";
+            while (my $line = <$dfh>) {
+                chomp $line;
+                $processed_recordids{$line} = 1;
+            }
+            close $dfh;
+            $log->info("Loaded checkpoint: skipping first $skip_count records (" . 
+                      (scalar keys %processed_recordids) . " already processed)");
+        }
+    } elsif ($resume && !-f $checkpoint_file) {
+        $log->info("Resume flag set but no checkpoint found - starting from beginning");
+    }
+}
+
+# Instantiate user agent with SSL configuration
+my $ua = LWP::UserAgent->new(
+    ssl_opts => {
+        SSL_version => 'TLSv12:!SSLv2:!SSLv3',  # Force TLS 1.2+
+        verify_hostname => 1,
+        SSL_verify_mode => 0x00,  # More lenient verification
+    },
+    timeout => 300,  # 5 minute timeout
+    agent => 'BOLD-Library-Curation/1.0',
+);
+$log->info("UserAgent initialized with enhanced SSL settings");
 
 # Open database or TSV
 my $io;
@@ -156,17 +244,54 @@ sub record_matches_targets {
     }
 }
 
+# Helper function to save checkpoint
+sub save_checkpoint {
+    my ($count, @recordids) = @_;
+    
+    return unless $checkpoint_file;  # Only save if we have a checkpoint file
+    
+    # Save the count
+    open my $fh, '>', $checkpoint_file or do {
+        $log->warn("Cannot save checkpoint: $!");
+        return;
+    };
+    print $fh $count;
+    close $fh;
+    
+    # Append new record IDs to data file
+    if (@recordids && $checkpoint_data_file) {
+        open my $dfh, '>>', $checkpoint_data_file or do {
+            $log->warn("Cannot save checkpoint data: $!");
+            return;
+        };
+        print $dfh join("\n", @recordids), "\n";
+        close $dfh;
+    }
+    
+    $log->debug("Checkpoint saved: $count records processed");
+}
+
 # Process records in batches
 my $total_processed = 0;
 my $target_processed = 0;
 my @processed_recordids = (); # Track processed record IDs for summary
+my @checkpoint_batch = ();    # Batch of record IDs for checkpoint saving
 
 $log->info("=== Starting image assessment record processing ===");
+if ($skip_count > 0) {
+    $log->info("Resuming from checkpoint - will skip first $skip_count records");
+}
+
 $io->prepare_rs;
 {
     my @queue;
     while (my $record = $io->next) {
         $total_processed++;
+        
+        # Skip records if resuming from checkpoint
+        if ($total_processed <= $skip_count) {
+            next;
+        }
         
         # Log progress periodically
         if ($total_processed % 1000 == 0) {
@@ -178,8 +303,16 @@ $io->prepare_rs;
             next;
         }
         
-        $target_processed++;
+        # Get record ID
         my $recordid = eval { $record->recordid } || "UNKNOWN";
+        
+        # Skip if already processed (from checkpoint)
+        if (exists $processed_recordids{$recordid}) {
+            $log->debug("Skipping already processed record: $recordid");
+            next;
+        }
+        
+        $target_processed++;
         my $processid = eval { $record->processid } || "UNKNOWN";
         my $taxonid;
         if (ref($record) && $record->can('get_column')) {
@@ -190,6 +323,7 @@ $io->prepare_rs;
         $taxonid = $taxonid || "UNDEFINED";
         
         push @processed_recordids, $recordid;
+        push @checkpoint_batch, $recordid;
         $log->info("Processing target record for images #$target_processed: recordid=$recordid, processid=$processid, taxonid=$taxonid");
         
         push @queue, $record;
@@ -199,17 +333,36 @@ $io->prepare_rs;
             eval { process_queue(@queue) };
             if ($@) {
                 $log->error("Batch processing failed: $@");
+                # Save checkpoint before dying
+                save_checkpoint($total_processed, @checkpoint_batch);
                 die $@;
             }
 
             # Clear queue and wait briefly
             @queue = ();
             usleep($SLEEP);
+            
+            # Save checkpoint periodically
+            if ($target_processed % $CHECKPOINT_INTERVAL == 0) {
+                save_checkpoint($total_processed, @checkpoint_batch);
+                @checkpoint_batch = ();  # Clear checkpoint batch after saving
+                $log->info("Checkpoint saved at $total_processed records ($target_processed targets)");
+            }
         }
     }
 
     # Process any remaining records
-    process_queue(@queue) if @queue;
+    if (@queue) {
+        eval { process_queue(@queue) };
+        if ($@) {
+            $log->error("Final batch processing failed: $@");
+            save_checkpoint($total_processed, @checkpoint_batch);
+            die $@;
+        }
+    }
+    
+    # Save final checkpoint
+    save_checkpoint($total_processed, @checkpoint_batch);
 }
 
 # Log summary statistics
@@ -230,6 +383,29 @@ if ( $use_target_filter ) {
 else {
     $log->info("Processed $total_processed records for image assessment (no target filtering)");
 }
+
+# Close output file handle
+if ($output_file) {
+    close $output_fh or $log->warn("Could not close output file handle: $!");
+    
+    # Rename temporary file to final output on success
+    if (-f $temp_output_file) {
+        rename $temp_output_file, $output_file 
+            or die "Cannot rename temporary file to final output: $!";
+        $log->info("Output file finalized: $output_file");
+    }
+}
+
+# Clean up checkpoint files on successful completion
+if ($checkpoint_file && -f $checkpoint_file) {
+    unlink $checkpoint_file;
+    $log->info("Checkpoint file removed after successful completion");
+}
+if ($checkpoint_data_file && -f $checkpoint_data_file) {
+    unlink $checkpoint_data_file;
+    $log->info("Checkpoint data file removed after successful completion");
+}
+
 $log->info("=== END IMAGE ASSESSMENT ===");
 
 sub process_queue {
@@ -259,11 +435,33 @@ sub process_queue {
         my $wspoint = $base_url . $batch;
         $log->info("Fetching images for batch of up to " . scalar(@queue) . " records");
 
-        # Send API request
-        my $response = $ua->get($wspoint);
+        # Retry logic with exponential backoff
+        my $response;
+        my $success = 0;
+        
+        for my $attempt (1..$MAX_RETRIES) {
+            $response = $ua->get($wspoint);
+            
+            if ($response->is_success) {
+                $success = 1;
+                last;  # Success, exit retry loop
+            }
+            
+            my $error = $response->status_line;
+            $log->warn("API request failed (attempt $attempt/$MAX_RETRIES): $error");
+            
+            if ($attempt < $MAX_RETRIES) {
+                my $delay = $RETRY_DELAY * (2 ** ($attempt - 1));  # Exponential backoff
+                $log->info("Retrying in $delay seconds...");
+                sleep($delay);
+            } else {
+                $log->error("Max retries exceeded. Final error: $error");
+                die $error;
+            }
+        }
         
         # Handle API response
-        if ($response->is_success) {
+        if ($success) {
             my $json = $response->decoded_content;
             my $array_ref = decode_json $json;
             $log->debug(Dumper($array_ref));
@@ -281,12 +479,15 @@ sub process_queue {
                     push @result, 0, ':-(';
                 }
 
-                print join("\t", @result), "\n";
+                print $output_fh join("\t", @result), "\n";
             }
         } else {
             $log->error("API request failed: " . $response->status_line);
             die $response->status_line;
         }
+        
+        # Rate limiting: delay between batches
+        sleep($BATCH_DELAY) if $BATCH_DELAY > 0;
     }
 }
 

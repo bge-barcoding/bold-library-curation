@@ -9,4 +9,7 @@ dependencies:
   - perl-libwww-perl
   - perl-text-csv
   - perl-lwp-protocol-https
+  - ca-certificates
+  - openssl>=3.0
+  - perl-mozilla-ca
   # Removed perl-data-dumper as it's core perl and can cause conflicts
