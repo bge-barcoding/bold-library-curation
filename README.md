@@ -1,7 +1,7 @@
 # BOLD Library Curation Pipeline
 
 ![Perl CI](https://github.com/FabianDeister/Library_curation_BOLD/actions/workflows/ci.yml/badge.svg)
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.11267905.svg)](https://doi.org/10.5281/zenodo.11267905)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.17495973.svg)](https://doi.org/10.5281/zenodo.17495973)
 [![DOI](https://zenodo.org/badge/DOI/10.48546/WORKFLOWHUB.WORKFLOW.833.1.svg)](https://doi.org/10.48546/WORKFLOWHUB.WORKFLOW.833.1)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
