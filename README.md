@@ -5,9 +5,11 @@
 [![DOI](https://zenodo.org/badge/DOI/10.48546/WORKFLOWHUB.WORKFLOW.833.1.svg)](https://doi.org/10.48546/WORKFLOWHUB.WORKFLOW.833.1)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
-<img src="doc/IBOL_LOGO_TRANSPARENT.png" style="width: 200px;" alt="IBOL Logo">
-<img src="doc/boldetective_logo.png" style="width: 200px;" alt="BOLDetective Logo">
-<img src="doc/Logo BGE.png" style="width: 200px;" alt="BGE Logo">
+<p align="left">
+  <img src="doc/IBOL_LOGO_TRANSPARENT.png" style="width: 200px;" alt="IBOL Logo">
+  <img src="doc/boldetective_logo.png" style="width: 200px;" alt="BOLDetective Logo">
+  <img src="doc/Logo BGE.png" style="width: 200px;" alt="BGE Logo">
+</p>
 
 ## Overview
 
