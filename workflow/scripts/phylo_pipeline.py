@@ -351,7 +351,12 @@ class PhylogeneticPipeline:
         representatives = []
         
         # Split records into those with and without species identification
-        has_species_mask = family_df['species'].notna() & (family_df['species'] != '')
+        # Note: species field may contain literal string "None" for unidentified records
+        has_species_mask = (
+            family_df['species'].notna() & 
+            (family_df['species'] != '') & 
+            (family_df['species'] != 'None')
+        )
         has_species = family_df[has_species_mask]
         no_species = family_df[~has_species_mask]
         
@@ -2356,7 +2361,7 @@ def main():
     parser.add_argument("--log-level", default="INFO", help="Logging level")
     parser.add_argument("--generate-pdfs", action="store_true", help="Generate PDF visualizations")
     parser.add_argument("--bin-conflict-analysis", action="store_true", help="Analyze BIN-species conflicts")
-    parser.add_argument("--cleanup-intermediates", action="store_true", default=True, 
+    parser.add_argument("--cleanup-intermediates", action="store_true",
                        help="Clean up intermediate files to save space")
     parser.add_argument("--batch-id", help="Batch identifier for logging purposes")
     parser.add_argument("--checkpoint-file", help="File to save/load processing checkpoint")
