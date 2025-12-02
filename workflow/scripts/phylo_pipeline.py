@@ -224,6 +224,7 @@ class PhylogeneticPipeline:
             return self.family_data_cache[family_name]
         
         # Single comprehensive query for all family data
+        # Includes both species-level records AND BINs without species identification
         query = """
         SELECT DISTINCT
             b.nuc,
@@ -237,18 +238,15 @@ class PhylogeneticPipeline:
             b.taxonid,
             bags.bags_grade
         FROM bold b
-        JOIN taxa t ON b.taxonid = t.taxonid
+        LEFT JOIN taxa t ON b.taxonid = t.taxonid
         LEFT JOIN bags ON t.taxonid = bags.taxonid
         WHERE b.family = ?
             AND b.nuc IS NOT NULL 
             AND LENGTH(b.nuc) > 200
-            AND b.genus IS NOT NULL
-            AND b.species IS NOT NULL
             AND b.bin_uri IS NOT NULL
             AND b.bin_uri != ''
             AND b.bin_uri != 'None'
             AND b.bin_uri LIKE 'BOLD:%'
-            AND t.level = 'species'
         ORDER BY b.species, b.bin_uri, LENGTH(b.nuc) DESC
         """
         
@@ -268,10 +266,11 @@ class PhylogeneticPipeline:
     def get_families_to_process(self, min_otus=3):
         """
         Get families meeting criteria without loading all data.
-        HPC-optimized for large datasets. Now counts distinct species-BIN combinations.
+        HPC-optimized for large datasets. Counts distinct species-BIN combinations
+        plus BINs without species identification (for phylogenetic representation).
         
         Args:
-            min_otus (int): Minimum number of species-BIN combinations required for analysis
+            min_otus (int): Minimum number of representable units (species-BIN combos + unidentified BINs)
             
         Returns:
             pandas.DataFrame: Families with their statistics
@@ -280,28 +279,32 @@ class PhylogeneticPipeline:
         SELECT 
             b.family,
             b.`order`,
-            COUNT(DISTINCT b.species || '|' || b.bin_uri) as species_bin_count,
+            -- Count species-BIN combinations (for identified records)
+            COUNT(DISTINCT CASE WHEN b.species IS NOT NULL AND b.species != '' 
+                  THEN b.species || '|' || b.bin_uri END) as species_bin_count,
+            -- Count BINs that have NO species-level records in this family
+            COUNT(DISTINCT CASE WHEN b.species IS NULL OR b.species = '' 
+                  THEN b.bin_uri END) as bins_without_species,
             COUNT(DISTINCT b.species) as species_count,
+            COUNT(DISTINCT b.bin_uri) as total_bins,
             COUNT(*) as total_records
         FROM bold b
         WHERE b.family IS NOT NULL 
             AND b.`order` IS NOT NULL
             AND b.nuc IS NOT NULL 
             AND LENGTH(b.nuc) > 200
-            AND b.genus IS NOT NULL
-            AND b.species IS NOT NULL
             AND b.bin_uri IS NOT NULL
             AND b.bin_uri != ''
             AND b.bin_uri != 'None'
             AND b.bin_uri LIKE 'BOLD:%'
         GROUP BY b.family, b.`order`
-        HAVING species_bin_count >= ?
-        ORDER BY species_bin_count DESC
+        HAVING (species_bin_count + bins_without_species) >= ?
+        ORDER BY (species_bin_count + bins_without_species) DESC
         """
         
         try:
             families_df = self.execute_with_retry(query, [min_otus])
-            print(f"Found {len(families_df)} families with ≥{min_otus} species-BIN combinations")
+            print(f"Found {len(families_df)} families with ≥{min_otus} representable units (species-BIN + unidentified BINs)")
             return families_df
         except Exception as e:
             print(f"Error getting families to process: {e}")
@@ -328,7 +331,13 @@ class PhylogeneticPipeline:
     
     def select_representatives_optimized(self, family_df):
         """
-        Select representative sequences (one per species-BIN combination).
+        Select representative sequences for phylogenetic analysis.
+        
+        Selection logic:
+        - For records WITH species identification: one representative per species-BIN combination
+        - For BINs WITHOUT any species identification: one representative per BIN
+        
+        This ensures BINs lacking species-level records are still represented in phylogenies.
         
         Args:
             family_df (pandas.DataFrame): Family sequence data
@@ -336,13 +345,35 @@ class PhylogeneticPipeline:
         Returns:
             pandas.DataFrame: Representative sequences
         """
+        if family_df.empty:
+            return pd.DataFrame()
+        
         representatives = []
         
-        # Group by species and BIN combination
-        for (species, bin_uri), group in family_df.groupby(['species', 'bin_uri']):
-            # Select the longest sequence for each species-BIN combination
-            rep = group.loc[group['nuc'].str.len().idxmax()]
-            representatives.append(rep)
+        # Split records into those with and without species identification
+        has_species_mask = family_df['species'].notna() & (family_df['species'] != '')
+        has_species = family_df[has_species_mask]
+        no_species = family_df[~has_species_mask]
+        
+        # 1. For records WITH species: group by (species, bin_uri)
+        if not has_species.empty:
+            for (species, bin_uri), group in has_species.groupby(['species', 'bin_uri']):
+                # Select the longest sequence for each species-BIN combination
+                rep = group.loc[group['nuc'].str.len().idxmax()]
+                representatives.append(rep)
+        
+        # Track which BINs are already represented via species-level records
+        represented_bins = set(has_species['bin_uri'].unique()) if not has_species.empty else set()
+        
+        # 2. For records WITHOUT species: one per BIN (only if BIN not already represented)
+        if not no_species.empty:
+            unrepresented = no_species[~no_species['bin_uri'].isin(represented_bins)]
+            
+            if not unrepresented.empty:
+                for bin_uri, group in unrepresented.groupby('bin_uri'):
+                    # Select the longest sequence for this unidentified BIN
+                    rep = group.loc[group['nuc'].str.len().idxmax()]
+                    representatives.append(rep)
         
         return pd.DataFrame(representatives)
     
@@ -1272,8 +1303,18 @@ class PhylogeneticPipeline:
             
             # Add ingroup sequences with labeling format
             for _, row in representatives_df.iterrows():
-                # Clean values to handle None or empty values
-                species = str(row.get('species', 'Unknown')).replace(' ', '_')
+                # Handle species - use genus_sp. or Unidentified for BIN-only records
+                raw_species = row.get('species', None)
+                genus = row.get('genus', None)
+                
+                if raw_species and str(raw_species).strip() and str(raw_species).lower() not in ('none', 'nan', ''):
+                    species = str(raw_species).replace(' ', '_')
+                elif genus and str(genus).strip() and str(genus).lower() not in ('none', 'nan', ''):
+                    # Use genus_sp. for records with genus but no species
+                    species = f"{str(genus).replace(' ', '_')}_sp."
+                else:
+                    species = 'Unidentified'
+                
                 bin_uri = str(row.get('bin_uri', 'NA')).replace(' ', '_')
                 processid = str(row.get('processid', 'NA')).replace(' ', '_')
                 
@@ -1284,10 +1325,13 @@ class PhylogeneticPipeline:
                 seq_id = seq_id.replace('(', '').replace(')', '').replace('[', '').replace(']', '')
                 seq_id = seq_id.replace(',', '').replace(';', '').replace(':', '')
                 
+                # Build description with genus info
+                genus_label = str(genus).replace(' ', '_') if genus and str(genus).lower() not in ('none', 'nan', '') else 'Unknown'
+                
                 record = SeqRecord(
                     Seq(row['nuc']),
                     id=seq_id,
-                    description=f"Ingroup|{row.get('genus', '')}_{species}|{row.get('family', '')}"
+                    description=f"Ingroup|{genus_label}_{species}|{row.get('family', '')}"
                 )
                 records.append(record)
             
@@ -1655,13 +1699,13 @@ class PhylogeneticPipeline:
                 print(f"   No sequences found for {family_name}")
                 return None
             
-            # 2. Select representatives (one per OTU-species combination)
+            # 2. Select representatives (one per OTU-species combination, plus BIN-only)
             representatives = self.select_representatives_optimized(family_df)
             
-            # 3. Check if we have enough species-BIN combinations
-            unique_species_bins = representatives.groupby(['species', 'bin_uri']).ngroups
-            if unique_species_bins < min_otus:
-                print(f"   Insufficient species-BIN combinations: {unique_species_bins} < {min_otus}")
+            # 3. Check if we have enough representatives (species-BIN combos + BIN-only)
+            num_representatives = len(representatives)
+            if num_representatives < min_otus:
+                print(f"   Insufficient representatives: {num_representatives} < {min_otus}")
                 return None
             
             # 4. Get outgroups from same order (with enhanced fallback strategy)
@@ -1725,8 +1769,8 @@ class PhylogeneticPipeline:
             return {
                 'family': family_name,
                 'order': family_order,
-                'num_species_bins': unique_species_bins,
-                'num_species': representatives['species'].nunique(),
+                'num_representatives': num_representatives,
+                'num_species': representatives['species'].dropna().nunique(),
                 'num_sequences': len(representatives),
                 'num_outgroups': len(outgroups),
                 'tree_file': paths['tree_file'],
@@ -1891,22 +1935,30 @@ class PhylogeneticPipeline:
                     print(f"   Warning: No sequences found for {family_name}")
                     continue
                 
-                # Check species-BIN count
+                # Check species-BIN count (now includes BIN-only representatives)
                 representatives = self.select_representatives_optimized(family_df)
-                species_bin_count = representatives.groupby(['species', 'bin_uri']).ngroups
+                # Count total representatives (species-BIN combos + BIN-only records)
+                rep_count = len(representatives)
                 
-                if species_bin_count < min_otus:
-                    print(f"   Skipping {family_name}: insufficient species-BIN combinations ({species_bin_count} < {min_otus})")
+                if rep_count < min_otus:
+                    print(f"   Skipping {family_name}: insufficient representatives ({rep_count} < {min_otus})")
                     continue
                 
                 # Get order information
                 family_order = family_df['order'].iloc[0] if not family_df.empty else family_info.get('order')
                 
+                # Count how many have species vs BIN-only
+                has_species_mask = representatives['species'].notna() & (representatives['species'] != '')
+                species_bin_count = has_species_mask.sum()
+                bin_only_count = (~has_species_mask).sum()
+                
                 verified_families.append({
                     'family': family_name,
                     'order': family_order,
                     'species_bin_count': species_bin_count,
-                    'species_count': representatives['species'].nunique()
+                    'bins_without_species': bin_only_count,
+                    'total_representatives': rep_count,
+                    'species_count': representatives.loc[has_species_mask, 'species'].nunique() if has_species_mask.any() else 0
                 })
             
             families_df = pd.DataFrame(verified_families)
@@ -1923,7 +1975,12 @@ class PhylogeneticPipeline:
         
         print(f"Processing {len(families_df)} families:")
         for _, row in families_df.iterrows():
-            print(f"  - {row['family']}: {row['species_bin_count']} species-BIN combinations, {row['species_count']} species")
+            bins_without = row.get('bins_without_species', 0)
+            total_reps = row.get('total_representatives', row.get('species_bin_count', 0) + bins_without)
+            if bins_without > 0:
+                print(f"  - {row['family']}: {total_reps} representatives ({row['species_bin_count']} species-BIN + {bins_without} unidentified BINs)")
+            else:
+                print(f"  - {row['family']}: {row['species_bin_count']} species-BIN combinations")
         
         print("="*60)
         
@@ -2020,11 +2077,11 @@ class PhylogeneticPipeline:
         
         if results:
             print(f"\nSuccessfully processed families:")
-            total_species_bins = sum(r['num_species_bins'] for r in results)
+            total_representatives = sum(r.get('num_representatives', r.get('num_sequences', 0)) for r in results)
             total_species = sum(r['num_species'] for r in results)
             total_sequences = sum(r['num_sequences'] for r in results)
             
-            print(f"  Total species-BIN combinations: {total_species_bins:,}")
+            print(f"  Total representatives (species-BIN + unidentified BINs): {total_representatives:,}")
             print(f"  Total unique species: {total_species:,}")
             print(f"  Total sequences processed: {total_sequences:,}")
             
@@ -2039,7 +2096,8 @@ class PhylogeneticPipeline:
             
             for result in results[:10]:  # Show first 10
                 outgroup_info = result.get('outgroup_strategy', 'same_order')
-                print(f"  - {result['family']}: {result['num_species_bins']} species-BINs, "
+                num_reps = result.get('num_representatives', result.get('num_sequences', 0))
+                print(f"  - {result['family']}: {num_reps} representatives, "
                       f"{result['num_species']} species, {result['num_sequences']} sequences "
                       f"(outgroups: {outgroup_info})")
             
@@ -2232,7 +2290,8 @@ class PhylogeneticPipeline:
             if results:
                 f.write("Successful families:\n")
                 for result in results:
-                    f.write(f"  - {result['family']}: {result['num_species_bins']} species-BINs, "
+                    num_reps = result.get('num_representatives', result.get('num_sequences', 0))
+                    f.write(f"  - {result['family']}: {num_reps} representatives, "
                            f"{result['num_species']} species, {result['num_sequences']} sequences, "
                            f"{result['num_outgroups']} outgroups\n")
             
