@@ -1020,6 +1020,7 @@ rule run_phylogenetic_analysis_parallel:
         bootstrap=config.get("PHYLO_BOOTSTRAP", 1000),
         num_outgroups=config.get("PHYLO_NUM_OUTGROUPS", 3),
         generate_pdfs=config.get("PHYLO_GENERATE_PDFS", True),
+        cleanup_intermediates=config.get("PHYLO_CLEANUP_INTERMEDIATES", True),
         job_memory=config.get("PHYLO_JOB_MEMORY", "32G"),
         job_time=config.get("PHYLO_JOB_TIME", "24:00:00"),
         max_concurrent=config.get("PHYLO_MAX_CONCURRENT", 10),
@@ -1105,7 +1106,8 @@ else:
                 {params.num_outgroups} \
                 {params.generate_pdfs} \
                 {output.custom_params} \
-                {params.log_dir} | awk '{{print $4}}')
+                {params.log_dir} \
+                {params.cleanup_intermediates} | awk '{{print $4}}')
             
             if [ -z "$JOB_ID" ]; then
                 echo "ERROR: Failed to submit SLURM job array" >> {log}

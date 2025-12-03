@@ -71,6 +71,7 @@ NUM_OUTGROUPS="${8:-3}"
 GENERATE_PDFS="${9:-false}"
 CUSTOM_PARAMS_FILE="${10:-}"
 LOG_DIR="${11:-logs}"
+CLEANUP_INTERMEDIATES="${12:-true}"
 
 echo "Configuration:"
 echo "  Database: ${DATABASE_PATH}"
@@ -84,6 +85,7 @@ echo "  Outgroups: ${NUM_OUTGROUPS}"
 echo "  Generate PDFs: ${GENERATE_PDFS}"
 echo "  Custom parameters file: ${CUSTOM_PARAMS_FILE:-'none (using optimized defaults)'}"
 echo "  Log directory: ${LOG_DIR}"
+echo "  Cleanup intermediates: ${CLEANUP_INTERMEDIATES}"
 echo ""
 
 # Validate inputs
@@ -214,7 +216,6 @@ PHYLO_ARGS=(
     "--num-outgroups" "${NUM_OUTGROUPS}"
     "--batch-id" "${SLURM_ARRAY_TASK_ID}"
     "--checkpoint-file" "${CHECKPOINT_FILE}"
-    "--cleanup-intermediates"
 )
 
 # Add custom parameters file if provided
@@ -226,6 +227,11 @@ fi
 # Add PDF generation if requested
 if [[ "${GENERATE_PDFS}" == "true" ]] || [[ "${GENERATE_PDFS}" == "True" ]]; then
     PHYLO_ARGS+=("--generate-pdfs")
+fi
+
+# Add cleanup intermediates if requested
+if [[ "${CLEANUP_INTERMEDIATES}" == "true" ]] || [[ "${CLEANUP_INTERMEDIATES}" == "True" ]]; then
+    PHYLO_ARGS+=("--cleanup-intermediates")
 fi
 
 # Add BIN conflict analysis (always enabled for now)
