@@ -35,7 +35,7 @@ sub _assess {
     my $count = ($nucraw =~ tr/ACGTacgt//);
 
     # TODO have minlength managed by config.yml
-    if ( $bin_uri ne '' and $count >= 500 ) {
+    if ( $bin_uri ne 'none' and $count >= 500 ) {
         return 1, 'Has BIN assignment and length >= 500bp';
     }
     else {
