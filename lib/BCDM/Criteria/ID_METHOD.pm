@@ -60,6 +60,7 @@ my @neg = qw(
     genetic
     unspecified
     its
+    None
 );
 
 my $log = __PACKAGE__->_get_logger(__PACKAGE__, 'DEBUG');
